@@ -63,15 +63,15 @@ func (b *bridge) SessionStarted()        {}
 func (b *bridge) SessionClosed()         {}
 
 var (
-	headerNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B00")).Bold(true)
-	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B00")).Bold(true)
-	footerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#887755")).Italic(true)
-	errorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	infoStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
-	activityStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#887755")).Italic(true)
-	ruleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#665544"))
-	turnSepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#665544"))
-	telemetryStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#887755")).Italic(true)
+	headerNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF9F1C")).Bold(true)
+	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF9F1C")).Bold(true)
+	footerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Italic(true)
+	errorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171"))
+	infoStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#00B4D8"))
+	activityStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Italic(true)
+	ruleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568"))
+	turnSepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568"))
+	telemetryStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Italic(true)
 )
 
 const frameHeight = 5 // top rule + input + bottom rule + status + blank
