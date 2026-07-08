@@ -11,12 +11,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
-	figure "github.com/common-nighthawk/go-figure"
 
 	"github.com/jjmrocha/ai-toolkit/agent"
+	"github.com/jjmrocha/ai-toolkit/llm"
 )
-
-const defaultFont = "small"
 
 var (
 	_ tea.Model      = model{}
@@ -26,14 +24,17 @@ var (
 type Config struct {
 	Name        string
 	Description string
-	// Font is the FIGlet font used to render Name as a block-letter banner.
-	// Empty selects "banner3".
-	Font string
+	Font        string
 }
 
 type agentController interface {
 	Process(ctx context.Context, input string) (*agent.Response, error)
 	ResetSession() error
+	ModelInfo(ctx context.Context) *agent.ModelInfo
+	ChangeModel(model string) error
+	ChangeEffort(e llm.Effort)
+	AvailableModels() []string
+	CompactContext(ctx context.Context)
 }
 
 type (
@@ -62,14 +63,15 @@ func (b *bridge) SessionStarted()        {}
 func (b *bridge) SessionClosed()         {}
 
 var (
-	headerNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	headerDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	footerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
+	headerNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B00")).Bold(true)
+	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B00")).Bold(true)
+	footerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#887755")).Italic(true)
 	errorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	infoStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	activityStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	ruleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	infoStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
+	activityStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#887755")).Italic(true)
+	ruleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#665544"))
+	turnSepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#665544"))
+	telemetryStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#887755")).Italic(true)
 )
 
 const frameHeight = 5 // top rule + input + bottom rule + status + blank
@@ -84,7 +86,6 @@ type model struct {
 	input      textinput.Model
 	spinner    spinner.Model
 	transcript []string
-	banner     string
 	lastMeta   agent.Metadata
 	width      int
 	busy       bool
@@ -95,20 +96,12 @@ func newModel(ag agentController, cfg Config) model {
 	ti := textinput.New()
 	ti.Prompt = "> "
 	ti.Focus()
+	ti.Placeholder = "type /help for commands"
 
 	renderer, _ := glamour.NewTermRenderer(
 		glamour.WithStandardStyle("dark"),
 		glamour.WithWordWrap(0),
 	)
-
-	var banner string
-	if cfg.Name != "" {
-		font := cfg.Font
-		if font == "" {
-			font = defaultFont
-		}
-		banner = strings.Trim(figure.NewFigure(cfg.Name, font, true).String(), "\n")
-	}
 
 	return model{
 		ctx:      context.Background(),
@@ -119,7 +112,6 @@ func newModel(ag agentController, cfg Config) model {
 		viewport: viewport.New(),
 		input:    ti,
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
-		banner:   banner,
 	}
 }
 
@@ -204,7 +196,7 @@ func (m model) View() tea.View {
 	content := "Initializing…"
 	if m.ready {
 		frame := lipgloss.JoinVertical(lipgloss.Left,
-			rule(m.width),
+			m.topBar(),
 			m.input.View(),
 			rule(m.width),
 			m.statusLine(),
@@ -215,11 +207,17 @@ func (m model) View() tea.View {
 
 	v := tea.NewView(content)
 	v.AltScreen = true
-	// Mouse capture stays off so the terminal keeps native text selection and
-	// copy; the viewport scrolls from the keyboard (and the terminal's
-	// alternate-scroll wheel, which arrives as arrow keys).
 	v.MouseMode = tea.MouseModeNone
 	return v
+}
+
+func (m model) topBar() string {
+	if m.cfg.Name == "" {
+		return rule(m.width)
+	}
+	label := " " + m.cfg.Name + " "
+	bar := strings.Repeat("─", max(0, m.width-lipgloss.Width(label))/2)
+	return headerNameStyle.Render(bar + label + bar)
 }
 
 func (m model) submit(text string) (model, tea.Cmd) {
@@ -238,7 +236,8 @@ func (m model) submit(text string) (model, tea.Cmd) {
 }
 
 func (m model) runCommand(input string) (model, tea.Cmd) {
-	name, _, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
+	name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
+	args = strings.TrimSpace(args)
 
 	switch name {
 	case "clear":
@@ -247,8 +246,57 @@ func (m model) runCommand(input string) (model, tea.Cmd) {
 		}
 		m.transcript = nil
 		return m.appendBlock(infoStyle.Width(m.width).Render("Context cleared.")), nil
+
+	case "model":
+		if args == "" {
+			return m.appendBlock(infoStyle.Width(m.width).Render("Usage: /model <name>")), nil
+		}
+		if err := m.agent.ChangeModel(args); err != nil {
+			return m.appendBlock(errorStyle.Width(m.width).Render("Error: " + err.Error())), nil
+		}
+		return m.appendBlock(infoStyle.Width(m.width).Render("Switched to: " + args)), nil
+
+	case "models":
+		models := m.agent.AvailableModels()
+		if len(models) == 0 {
+			return m.appendBlock(infoStyle.Width(m.width).Render("No model list available.")), nil
+		}
+		return m.appendBlock(infoStyle.Width(m.width).Render("Models: " + strings.Join(models, ", "))), nil
+
+	case "effort":
+		if args == "" {
+			return m.appendBlock(infoStyle.Width(m.width).Render("Usage: /effort off|low|medium|max")), nil
+		}
+		var e llm.Effort
+		switch llm.Effort(args) {
+		case llm.EffortOff, llm.EffortLow, llm.EffortMedium, llm.EffortMax:
+			e = llm.Effort(args)
+		default:
+			return m.appendBlock(errorStyle.Width(m.width).Render("Effort must be: off, low, medium, max")), nil
+		}
+		m.agent.ChangeEffort(e)
+		return m.appendBlock(infoStyle.Width(m.width).Render("Effort: " + string(e))), nil
+
+	case "compact":
+		m.agent.CompactContext(m.ctx)
+		return m.appendBlock(activityStyle.Render("● context compacted")), nil
+
 	case "exit":
 		return m, tea.Quit
+
+	case "help":
+		help := strings.Join([]string{
+			"Commands:",
+			"  /model <name>   Switch model",
+			"  /models         List available models",
+			"  /effort <level> Set reasoning effort (off, low, medium, max)",
+			"  /compact        Force context compaction",
+			"  /clear          Reset conversation",
+			"  /help           Show this message",
+			"  /exit           Quit",
+		}, "\n")
+		return m.appendBlock(infoStyle.Width(m.width).Render(help)), nil
+
 	default:
 		return m.appendBlock(errorStyle.Width(m.width).Render("Error: unknown command /" + name)), nil
 	}
@@ -262,7 +310,32 @@ func (m model) processCmd(text string) tea.Cmd {
 }
 
 func (m model) appendReply(resp *agent.Response) model {
-	return m.appendBlock(m.renderMarkdown(resp.Content))
+	parts := []string{m.renderMarkdown(resp.Content)}
+	if resp.Metadata.OutputTokens > 0 {
+		sep := turnSepStyle.Render(strings.Repeat("━", m.width))
+		parts = append(parts, sep, m.telemetryLine(resp.Metadata))
+	}
+	return m.appendBlock(strings.Join(parts, "\n"))
+}
+
+func (m model) telemetryLine(meta agent.Metadata) string {
+	var parts []string
+	if meta.ToolCalls > 0 {
+		parts = append(parts, fmt.Sprintf("%d tool calls", meta.ToolCalls))
+	}
+	if meta.LLMDuration > 0 {
+		parts = append(parts, fmt.Sprintf("%.1fs llm", meta.LLMDuration.Seconds()))
+	}
+	if meta.ToolDuration > 0 {
+		parts = append(parts, fmt.Sprintf("%.1fs tools", meta.ToolDuration.Seconds()))
+	}
+	if meta.OutputTokens > 0 {
+		parts = append(parts, fmt.Sprintf("%d out tok", meta.OutputTokens))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return telemetryStyle.Render("[" + strings.Join(parts, " · ") + "]")
 }
 
 func (m model) renderMarkdown(s string) string {
@@ -281,54 +354,30 @@ func (m model) statusLine() string {
 		return footerStyle.Render(m.spinner.View() + " thinking…")
 	}
 
-	name := m.lastMeta.ModelName
-	if name == "" {
-		name = "—"
+	name := "—"
+	contextSize := 0
+	var effort llm.Effort
+	if info := m.agent.ModelInfo(m.ctx); info != nil {
+		if info.ModelName != "" {
+			name = info.ModelName
+		}
+		contextSize = info.ModelContextSize
+		effort = info.Effort
 	}
 
 	pct := 0.0
-	if m.lastMeta.ModelContextSize > 0 {
-		pct = float64(m.lastMeta.TotalTokens) * 100 / float64(m.lastMeta.ModelContextSize)
+	if contextSize > 0 {
+		pct = float64(m.lastMeta.TotalTokens) * 100 / float64(contextSize)
 	}
 
-	status := fmt.Sprintf("%s | Context: %.1f%% | Tokens: %s", name, pct, formatTokens(m.lastMeta.TotalTokens))
-	return footerStyle.Render(status)
-}
+	parts := []string{name}
+	if effort != llm.EffortOff {
+		parts = append(parts, string(effort))
+	}
+	parts = append(parts, fmt.Sprintf("ctx:%.0f%%", pct))
+	parts = append(parts, fmt.Sprintf("%s tok", formatTokens(m.lastMeta.TotalTokens)))
 
-func (m model) header() string {
-	if m.cfg.Name == "" && m.cfg.Description == "" {
-		return ""
-	}
-
-	lines := make([]string, 0, 3)
-	if m.banner != "" {
-		lines = append(lines, headerNameStyle.Render(centerBlock(m.banner, m.width)))
-	}
-	if m.cfg.Description != "" {
-		lines = append(lines, headerDescStyle.Width(m.width).Align(lipgloss.Center).Render(m.cfg.Description))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
-}
-
-// centerBlock left-pads every line of s by the same amount so the block is
-// centered within width as a unit, preserving the internal alignment of
-// multi-line art (centering each line independently would shear it).
-func centerBlock(s string, width int) string {
-	lines := strings.Split(s, "\n")
-	maxw := 0
-	for _, ln := range lines {
-		if w := lipgloss.Width(ln); w > maxw {
-			maxw = w
-		}
-	}
-	if maxw >= width {
-		return s
-	}
-	pad := strings.Repeat(" ", (width-maxw)/2)
-	for i, ln := range lines {
-		lines[i] = pad + ln
-	}
-	return strings.Join(lines, "\n")
+	return footerStyle.Render(strings.Join(parts, " · "))
 }
 
 func rule(width int) string {
@@ -358,11 +407,7 @@ func (m model) resize(width, height int) model {
 }
 
 func (m model) refresh() model {
-	blocks := m.transcript
-	if h := m.header(); h != "" {
-		blocks = append([]string{h, ""}, m.transcript...)
-	}
-	m.viewport.SetContent(strings.Join(blocks, "\n\n"))
+	m.viewport.SetContent(strings.Join(m.transcript, "\n\n"))
 	m.viewport.GotoBottom()
 	return m
 }

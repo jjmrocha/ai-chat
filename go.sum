@@ -52,6 +52,14 @@ github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUq
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/jjmrocha/ai-toolkit v0.0.0-20260630175335-ae97b2e8a336 h1:fHJJcxXOinNaoRwk8yIOF3rVBq57MX1JyCTJBzHiZkc=
 github.com/jjmrocha/ai-toolkit v0.0.0-20260630175335-ae97b2e8a336/go.mod h1:Y8W3cRnE0FvJZctfaHIzeSmfyfWRk4/AWZQTCb6wIC4=
+github.com/jjmrocha/ai-toolkit v0.0.0-20260704153417-394ce9a0c15b h1:VpED4S8wE1qSl0EFqbkkd6Uqm96G8iP7MeLWhc6tFQc=
+github.com/jjmrocha/ai-toolkit v0.0.0-20260704153417-394ce9a0c15b/go.mod h1:hoOw0p1Vrs7P+XtKoPfhhwBWju6dz4juEYIGir9CoYY=
+github.com/jjmrocha/ai-toolkit v0.1.0 h1:YFliprtrewbqtxlB9ixD5P4mtfu5AH5Pj8TwBW8VZvw=
+github.com/jjmrocha/ai-toolkit v0.1.0/go.mod h1:hoOw0p1Vrs7P+XtKoPfhhwBWju6dz4juEYIGir9CoYY=
+github.com/jjmrocha/ai-toolkit v0.1.1 h1:pdGmDAH6jkn8TXvxZY3FrZ36eCnhLzT1IfSn4ZrExjM=
+github.com/jjmrocha/ai-toolkit v0.1.1/go.mod h1:hoOw0p1Vrs7P+XtKoPfhhwBWju6dz4juEYIGir9CoYY=
+github.com/jjmrocha/ai-toolkit v0.1.2 h1:FV3BB5JouJEj7zNvQMselj+BVXsMdHYBWnBYk/D1BBA=
+github.com/jjmrocha/ai-toolkit v0.1.2/go.mod h1:hoOw0p1Vrs7P+XtKoPfhhwBWju6dz4juEYIGir9CoYY=
 github.com/lucasb-eyer/go-colorful v1.4.0 h1:UtrWVfLdarDgc44HcS7pYloGHJUjHV/4FwW4TvVgFr4=
 github.com/lucasb-eyer/go-colorful v1.4.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-runewidth v0.0.23 h1:7ykA0T0jkPpzSvMS5i9uoNn2Xy3R383f9HDx3RybWcw=

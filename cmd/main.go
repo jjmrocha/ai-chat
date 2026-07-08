@@ -13,24 +13,45 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 
 	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
+	"github.com/jjmrocha/ai-toolkit/mcp"
+	"github.com/jjmrocha/ai-toolkit/tools"
 )
 
 func main() {
 	client, err := llm.New(llm.Config{
 		Provider: llm.ProviderOpenRouter,
-		Model:    "xiaomi/mimo-v2.5",
 		APIKey:   os.Getenv("OPEN_ROUTER_KEY"),
+		Model:    "minimax/minimax-m2.7",
+		Effort:   llm.EffortMedium,
 	})
 	if err != nil {
 		panic(err)
 	}
 
-	ag, err := agent.New(agent.Config{}, client, nil)
+	toolBox := tools.NewToolBox()
+
+	mcpClient, err := mcp.NewClient(context.Background(), mcp.ClientConfig{
+		Name:    "playwright",
+		Command: "npx",
+		Args:    []string{"@playwright/mcp@latest"},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer mcpClient.Close()
+
+	err = mcpClient.RegisterTools(context.Background(), toolBox)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ag, err := agent.New(agent.Config{}, client, toolBox)
 	if err != nil {
 		panic(err)
 	}
