@@ -211,3 +211,65 @@ func TestUnknownCommandShowsError(t *testing.T) {
 		t.Errorf("expected error for unknown command, got %q", last)
 	}
 }
+
+func TestCommandThemeWithoutArgListsThemes(t *testing.T) {
+	m := &mockAgent{}
+	mdl := newModel(m, Config{Name: "test"})
+	mdl.busy = false
+
+	mdl, _ = mdl.submit("/theme")
+	if len(mdl.transcript) == 0 {
+		t.Fatal("expected transcript entries")
+	}
+	last := mdl.transcript[len(mdl.transcript)-1]
+	if !strings.Contains(last, "default") || !strings.Contains(last, "nord") {
+		t.Errorf("expected theme list, got %q", last)
+	}
+}
+
+func TestCommandThemeSwitchesTheme(t *testing.T) {
+	m := &mockAgent{}
+	mdl := newModel(m, Config{Name: "test"})
+	mdl.busy = false
+
+	mdl, _ = mdl.submit("/theme nord")
+	if len(mdl.transcript) == 0 {
+		t.Fatal("expected transcript entries")
+	}
+	last := mdl.transcript[len(mdl.transcript)-1]
+	if !strings.Contains(last, "nord") {
+		t.Errorf("expected success message for nord, got %q", last)
+	}
+}
+
+func TestCommandThemeInvalidShowsError(t *testing.T) {
+	m := &mockAgent{}
+	mdl := newModel(m, Config{Name: "test"})
+	mdl.busy = false
+
+	mdl, _ = mdl.submit("/theme bogus")
+	if len(mdl.transcript) == 0 {
+		t.Fatal("expected transcript entries")
+	}
+	last := mdl.transcript[len(mdl.transcript)-1]
+	if !strings.Contains(last, "Unknown theme") {
+		t.Errorf("expected error for unknown theme, got %q", last)
+	}
+}
+
+func TestDefaultThemeAppliedWhenConfigEmpty(t *testing.T) {
+	mdl := newModel(&mockAgent{}, Config{Name: "test"})
+	if mdl.cfg.ThemeName != "" {
+		t.Fatal("expected empty theme name")
+	}
+	if len(mdl.transcript) != 0 {
+		t.Error("expected empty transcript after init")
+	}
+}
+
+func TestInvalidThemeNameFallsBackToDefault(t *testing.T) {
+	mdl := newModel(&mockAgent{}, Config{Name: "test", ThemeName: "nonexistent"})
+	if len(mdl.transcript) != 0 {
+		t.Error("expected empty transcript after init with invalid theme")
+	}
+}

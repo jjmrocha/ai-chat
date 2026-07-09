@@ -25,6 +25,7 @@ type Config struct {
 	Name        string
 	Description string
 	Font        string
+	ThemeName   string
 }
 
 type agentController interface {
@@ -62,18 +63,6 @@ func (b *bridge) SessionReset()          {}
 func (b *bridge) SessionStarted()        {}
 func (b *bridge) SessionClosed()         {}
 
-var (
-	headerNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF9F1C")).Bold(true)
-	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF9F1C")).Bold(true)
-	footerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Italic(true)
-	errorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171"))
-	infoStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#00B4D8"))
-	activityStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Italic(true)
-	ruleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568"))
-	turnSepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568"))
-	telemetryStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Italic(true)
-)
-
 const frameHeight = 5 // top rule + input + bottom rule + status + blank
 
 type model struct {
@@ -90,6 +79,16 @@ type model struct {
 	width      int
 	busy       bool
 	ready      bool
+
+	headerNameStyle lipgloss.Style
+	userStyle       lipgloss.Style
+	footerStyle     lipgloss.Style
+	errorStyle      lipgloss.Style
+	infoStyle       lipgloss.Style
+	activityStyle   lipgloss.Style
+	ruleStyle       lipgloss.Style
+	turnSepStyle    lipgloss.Style
+	telemetryStyle  lipgloss.Style
 }
 
 func newModel(ag agentController, cfg Config) model {
@@ -103,7 +102,7 @@ func newModel(ag agentController, cfg Config) model {
 		glamour.WithWordWrap(0),
 	)
 
-	return model{
+	m := model{
 		ctx:      context.Background(),
 		cfg:      cfg,
 		agent:    ag,
@@ -113,6 +112,37 @@ func newModel(ag agentController, cfg Config) model {
 		input:    ti,
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
+	m.applyTheme(cfg.ThemeName)
+	return m
+}
+
+func (m *model) applyTheme(name string) {
+	t, ok := lookupTheme(name)
+	if !ok {
+		t, ok = lookupTheme("default")
+	}
+	if !ok {
+		t = Theme{
+			HeaderName: "#FF9F1C",
+			User:       "#FF9F1C",
+			Footer:     "#94A3B8",
+			Error:      "#F87171",
+			Info:       "#00B4D8",
+			Activity:   "#94A3B8",
+			Rule:       "#4A5568",
+			TurnSep:    "#4A5568",
+			Telemetry:  "#94A3B8",
+		}
+	}
+	m.headerNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.HeaderName)).Bold(true)
+	m.userStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.User)).Bold(true)
+	m.footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Footer)).Italic(true)
+	m.errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error))
+	m.infoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info))
+	m.activityStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Activity)).Italic(true)
+	m.ruleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Rule))
+	m.turnSepStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TurnSep))
+	m.telemetryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Telemetry)).Italic(true)
 }
 
 type Model struct {
@@ -159,7 +189,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case processDoneMsg:
 		m.busy = false
 		if msg.err != nil {
-			m = m.appendBlock(errorStyle.Width(m.width).Render("Error: " + msg.err.Error()))
+			m = m.appendBlock(m.errorStyle.Width(m.width).Render("Error: " + msg.err.Error()))
 		} else {
 			m.lastMeta = msg.resp.Metadata
 			m = m.appendReply(msg.resp)
@@ -168,12 +198,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case toolCalledMsg:
-		m = m.appendBlock(activityStyle.Render("● tool: " + msg.name))
+		m = m.appendBlock(m.activityStyle.Render("● tool: " + msg.name))
 		m = m.refresh()
 		return m, nil
 
 	case compactedMsg:
-		m = m.appendBlock(activityStyle.Render("● context compacted"))
+		m = m.appendBlock(m.activityStyle.Render("● context compacted"))
 		m = m.refresh()
 		return m, nil
 
@@ -198,7 +228,7 @@ func (m model) View() tea.View {
 		frame := lipgloss.JoinVertical(lipgloss.Left,
 			m.topBar(),
 			m.input.View(),
-			rule(m.width),
+			m.rule(m.width),
 			m.statusLine(),
 			"",
 		)
@@ -213,11 +243,11 @@ func (m model) View() tea.View {
 
 func (m model) topBar() string {
 	if m.cfg.Name == "" {
-		return rule(m.width)
+		return m.rule(m.width)
 	}
 	label := " " + m.cfg.Name + " "
 	bar := strings.Repeat("─", max(0, m.width-lipgloss.Width(label))/2)
-	return headerNameStyle.Render(bar + label + bar)
+	return m.headerNameStyle.Render(bar + label + bar)
 }
 
 func (m model) submit(text string) (model, tea.Cmd) {
@@ -230,7 +260,7 @@ func (m model) submit(text string) (model, tea.Cmd) {
 		return m.runCommand(text)
 	}
 
-	m = m.appendBlock(userStyle.Width(m.width).Render("❯ " + text))
+	m = m.appendBlock(m.userStyle.Width(m.width).Render("❯ " + text))
 	m.busy = true
 	return m, tea.Batch(m.processCmd(text), m.spinner.Tick)
 }
@@ -242,44 +272,57 @@ func (m model) runCommand(input string) (model, tea.Cmd) {
 	switch name {
 	case "clear":
 		if err := m.agent.ResetSession(); err != nil {
-			return m.appendBlock(errorStyle.Width(m.width).Render("Error: " + err.Error())), nil
+			return m.appendBlock(m.errorStyle.Width(m.width).Render("Error: " + err.Error())), nil
 		}
 		m.transcript = nil
-		return m.appendBlock(infoStyle.Width(m.width).Render("Context cleared.")), nil
+		return m.appendBlock(m.infoStyle.Width(m.width).Render("Context cleared.")), nil
 
 	case "model":
 		if args == "" {
-			return m.appendBlock(infoStyle.Width(m.width).Render("Usage: /model <name>")), nil
+			return m.appendBlock(m.infoStyle.Width(m.width).Render("Usage: /model <name>")), nil
 		}
 		if err := m.agent.ChangeModel(args); err != nil {
-			return m.appendBlock(errorStyle.Width(m.width).Render("Error: " + err.Error())), nil
+			return m.appendBlock(m.errorStyle.Width(m.width).Render("Error: " + err.Error())), nil
 		}
-		return m.appendBlock(infoStyle.Width(m.width).Render("Switched to: " + args)), nil
+		return m.appendBlock(m.infoStyle.Width(m.width).Render("Switched to: " + args)), nil
 
 	case "models":
 		models := m.agent.AvailableModels()
 		if len(models) == 0 {
-			return m.appendBlock(infoStyle.Width(m.width).Render("No model list available.")), nil
+			return m.appendBlock(m.infoStyle.Width(m.width).Render("No model list available.")), nil
 		}
-		return m.appendBlock(infoStyle.Width(m.width).Render("Models: " + strings.Join(models, ", "))), nil
+		return m.appendBlock(m.infoStyle.Width(m.width).Render("Models: " + strings.Join(models, ", "))), nil
 
 	case "effort":
 		if args == "" {
-			return m.appendBlock(infoStyle.Width(m.width).Render("Usage: /effort off|low|medium|max")), nil
+			return m.appendBlock(m.infoStyle.Width(m.width).Render("Usage: /effort off|low|medium|max")), nil
 		}
 		var e llm.Effort
 		switch llm.Effort(args) {
 		case llm.EffortOff, llm.EffortLow, llm.EffortMedium, llm.EffortMax:
 			e = llm.Effort(args)
 		default:
-			return m.appendBlock(errorStyle.Width(m.width).Render("Effort must be: off, low, medium, max")), nil
+			return m.appendBlock(m.errorStyle.Width(m.width).Render("Effort must be: off, low, medium, max")), nil
 		}
 		m.agent.ChangeEffort(e)
-		return m.appendBlock(infoStyle.Width(m.width).Render("Effort: " + string(e))), nil
+		return m.appendBlock(m.infoStyle.Width(m.width).Render("Effort: " + string(e))), nil
 
 	case "compact":
 		m.agent.CompactContext(m.ctx)
-		return m.appendBlock(activityStyle.Render("● context compacted")), nil
+		return m.appendBlock(m.activityStyle.Render("● context compacted")), nil
+
+	case "theme":
+		if args == "" {
+			names := themeNames()
+			return m.appendBlock(m.infoStyle.Width(m.width).Render("Themes: "+strings.Join(names, ", "))), nil
+		}
+		if _, ok := lookupTheme(args); !ok {
+			names := themeNames()
+			return m.appendBlock(m.errorStyle.Width(m.width).Render("Unknown theme. Available: "+strings.Join(names, ", "))), nil
+		}
+		m.applyTheme(args)
+		m = m.refresh()
+		return m.appendBlock(m.infoStyle.Width(m.width).Render("Theme switched to: " + args)), nil
 
 	case "exit":
 		return m, tea.Quit
@@ -291,14 +334,15 @@ func (m model) runCommand(input string) (model, tea.Cmd) {
 			"  /models         List available models",
 			"  /effort <level> Set reasoning effort (off, low, medium, max)",
 			"  /compact        Force context compaction",
+			"  /theme [name]   Show or switch color theme",
 			"  /clear          Reset conversation",
 			"  /help           Show this message",
 			"  /exit           Quit",
 		}, "\n")
-		return m.appendBlock(infoStyle.Width(m.width).Render(help)), nil
+		return m.appendBlock(m.infoStyle.Width(m.width).Render(help)), nil
 
 	default:
-		return m.appendBlock(errorStyle.Width(m.width).Render("Error: unknown command /" + name)), nil
+		return m.appendBlock(m.errorStyle.Width(m.width).Render("Error: unknown command /" + name)), nil
 	}
 }
 
@@ -312,7 +356,7 @@ func (m model) processCmd(text string) tea.Cmd {
 func (m model) appendReply(resp *agent.Response) model {
 	parts := []string{m.renderMarkdown(resp.Content)}
 	if resp.Metadata.OutputTokens > 0 {
-		sep := turnSepStyle.Render(strings.Repeat("━", m.width))
+		sep := m.turnSepStyle.Render(strings.Repeat("━", m.width))
 		parts = append(parts, sep, m.telemetryLine(resp.Metadata))
 	}
 	return m.appendBlock(strings.Join(parts, "\n"))
@@ -335,7 +379,7 @@ func (m model) telemetryLine(meta agent.Metadata) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return telemetryStyle.Render("[" + strings.Join(parts, " · ") + "]")
+	return m.telemetryStyle.Render("[" + strings.Join(parts, " · ") + "]")
 }
 
 func (m model) renderMarkdown(s string) string {
@@ -351,7 +395,7 @@ func (m model) renderMarkdown(s string) string {
 
 func (m model) statusLine() string {
 	if m.busy {
-		return footerStyle.Render(m.spinner.View() + " thinking…")
+		return m.footerStyle.Render(m.spinner.View() + " thinking…")
 	}
 
 	name := "—"
@@ -377,14 +421,14 @@ func (m model) statusLine() string {
 	parts = append(parts, fmt.Sprintf("ctx:%.0f%%", pct))
 	parts = append(parts, fmt.Sprintf("%s tok", formatTokens(m.lastMeta.TotalTokens)))
 
-	return footerStyle.Render(strings.Join(parts, " · "))
+	return m.footerStyle.Render(strings.Join(parts, " · "))
 }
 
-func rule(width int) string {
+func (m model) rule(width int) string {
 	if width <= 0 {
 		return ""
 	}
-	return ruleStyle.Render(strings.Repeat("─", width))
+	return m.ruleStyle.Render(strings.Repeat("─", width))
 }
 
 func (m model) appendBlock(s string) model {
