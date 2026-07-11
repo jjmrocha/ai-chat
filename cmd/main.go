@@ -16,6 +16,7 @@ import (
 	"os"
 
 	"github.com/jjmrocha/ai-chat/chat"
+	"github.com/jjmrocha/ai-chat/ui"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/jjmrocha/ai-toolkit/mcp"
@@ -55,12 +56,8 @@ func main() {
 	defer ag.Close()
 	ag.StartSession("You are a helpful assistant. You can answer questions and provide information.")
 
-	c := chat.New(ag, chat.Config{
-		Name:        "CHAT",
-		Description: "A minimal terminal chat over an LLM agent.",
-		MCP:         mcpMng,
-	})
-	if err := c.Run(context.Background()); err != nil {
+	core := chat.New("CHAT", ag)
+	if err := ui.Run(context.Background(), core); err != nil {
 		log.Fatal(err)
 	}
 }
