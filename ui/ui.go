@@ -19,7 +19,10 @@ import (
 
 const frameHeight = 3 // input + rule + status line
 
-type refreshMsg struct{}
+type (
+	refreshMsg struct{}
+	quitMsg    struct{}
+)
 
 // observer bridges core notifications into the Bubble Tea event loop.
 type observer struct{ program *tea.Program }
@@ -27,6 +30,12 @@ type observer struct{ program *tea.Program }
 func (o *observer) TranscriptChanged() {
 	if o.program != nil {
 		o.program.Send(refreshMsg{})
+	}
+}
+
+func (o *observer) Quit() {
+	if o.program != nil {
+		o.program.Send(quitMsg{})
 	}
 }
 
@@ -100,6 +109,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case refreshMsg:
 		return m.refresh(), nil
+
+	case quitMsg:
+		return m, tea.Quit
 
 	case tea.KeyPressMsg:
 		switch msg.String() {

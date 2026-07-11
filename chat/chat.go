@@ -6,6 +6,7 @@ package chat
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 
@@ -27,10 +28,12 @@ type Line struct {
 	Text string
 }
 
-// Observer is notified after any transcript mutation. The UI implements it and
-// re-renders; the core never renders itself.
+// Observer receives the core's two signals to the UI: re-render after a
+// transcript change, and quit. The UI implements both; the core never renders
+// or exits the program itself.
 type Observer interface {
 	TranscriptChanged()
+	Quit()
 }
 
 // agentBackend is the slice of *agent.Agent the core drives. Kept as an
@@ -52,6 +55,8 @@ type Chat struct {
 	agent agentBackend
 	ctx   context.Context
 
+	commands map[string]command.Command
+
 	mu         sync.Mutex
 	transcript []Line
 	observer   Observer
@@ -60,22 +65,24 @@ type Chat struct {
 	theme      theme.Theme
 }
 
-// Option configures a Chat at construction.
-type Option func(*Chat)
-
-// WithTheme sets the color palette the UI applies. Defaults to theme.Default.
-func WithTheme(t theme.Theme) Option {
-	return func(c *Chat) { c.theme = t }
-}
-
 // newChat builds a Chat with defaults applied, then the options. It does not
 // wire an agent, so tests can construct a core without a live model.
 func newChat(name string, opts ...Option) *Chat {
-	c := &Chat{name: name, ctx: context.Background(), theme: theme.Default}
+	c := &Chat{
+		name:     name,
+		ctx:      context.Background(),
+		theme:    theme.Default,
+		commands: map[string]command.Command{},
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
+}
+
+// register adds cmd to the command table, keyed by its name.
+func (c *Chat) register(cmd command.Command) {
+	c.commands[cmd.Name()] = cmd
 }
 
 // New builds a Chat over ag and installs itself as the agent's feedback sink so
@@ -123,22 +130,76 @@ func (c *Chat) LastMetadata() agent.Metadata {
 	return c.lastMeta
 }
 
-// Submit runs text as a user turn unless it is blank or a turn is already in
-// flight. The agent call runs off the caller's goroutine; results reach the
-// transcript through the observer.
+// Submit handles a line of user input: a slash command is dispatched, otherwise
+// the text runs as an agent turn. Blank input and input arriving while a turn is
+// already in flight are ignored. Agent and command work run off the caller's
+// goroutine; results reach the transcript through the observer.
 func (c *Chat) Submit(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" || c.Busy() {
+		return
+	}
+	if strings.HasPrefix(text, "/") {
+		c.dispatch(text)
 		return
 	}
 	c.mu.Lock()
-	if c.busy {
-		c.mu.Unlock()
-		return
-	}
 	c.busy = true
 	c.mu.Unlock()
-	go c.process(context.Background(), text)
+	go c.process(c.ctx, text)
+}
+
+// dispatch parses and runs a slash command. The always-present /exit and /help
+// are handled here; any other name is looked up in the registered commands and
+// run on its own goroutine so a slow command never blocks rendering.
+func (c *Chat) dispatch(input string) {
+	name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
+	args = strings.TrimSpace(args)
+
+	switch name {
+	case "exit":
+		c.quit()
+		return
+	case "help":
+		c.append(command.Info, c.helpText())
+		return
+	}
+
+	cmd, ok := c.commands[name]
+	if !ok {
+		c.append(command.Error, "Error: unknown command /"+name)
+		return
+	}
+	go cmd.Run(c, args)
+}
+
+// helpText lists the registered commands (sorted) plus the always-present ones.
+func (c *Chat) helpText() string {
+	names := make([]string, 0, len(c.commands))
+	for name := range c.commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	lines := make([]string, 0, len(names)+3)
+	lines = append(lines, "Commands:")
+	for _, name := range names {
+		lines = append(lines, "  "+c.commands[name].Help())
+	}
+	lines = append(lines,
+		"  /help           Show this message",
+		"  /exit           Quit",
+	)
+	return strings.Join(lines, "\n")
+}
+
+func (c *Chat) quit() {
+	c.mu.Lock()
+	o := c.observer
+	c.mu.Unlock()
+	if o != nil {
+		o.Quit()
+	}
 }
 
 func (c *Chat) process(ctx context.Context, text string) {

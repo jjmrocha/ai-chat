@@ -56,7 +56,14 @@ func main() {
 	defer ag.Close()
 	ag.StartSession("You are a helpful assistant. You can answer questions and provide information.")
 
-	core := chat.New("CHAT", ag)
+	core := chat.New("CHAT", ag,
+		chat.WithMCP(mcpMng),
+		chat.WithModelCommand(),
+		chat.WithModelsCommand(),
+		chat.WithEffortCommand(),
+		chat.WithCompactCommand(),
+		chat.WithClearCommand(),
+	)
 	if err := ui.Run(context.Background(), core); err != nil {
 		log.Fatal(err)
 	}

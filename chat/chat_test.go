@@ -6,11 +6,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
+	"github.com/jjmrocha/ai-toolkit/mcp"
 )
 
 type fakeRunner struct {
@@ -33,9 +35,19 @@ func (f *fakeRunner) ModelInfo(context.Context) *agent.ModelInfo { return nil }
 func (f *fakeRunner) CompactContext(context.Context)             {}
 func (f *fakeRunner) ResetSession() error                        { f.reset++; return f.resetErr }
 
-type countObserver struct{ n atomic.Int64 }
+type countObserver struct {
+	n    atomic.Int64
+	quit atomic.Int64
+}
 
 func (o *countObserver) TranscriptChanged() { o.n.Add(1) }
+func (o *countObserver) Quit()              { o.quit.Add(1) }
+
+type signalCmd struct{ done chan string }
+
+func (signalCmd) Name() string                         { return "sig" }
+func (signalCmd) Help() string                         { return "/sig            Test command" }
+func (s signalCmd) Run(_ command.Context, args string) { s.done <- args }
 
 func newTestChat(r agentBackend) *Chat {
 	return &Chat{name: "T", agent: r, ctx: context.Background(), theme: theme.Default}
@@ -147,6 +159,71 @@ func TestClearKeepsTranscriptOnResetError(t *testing.T) {
 		t.Errorf("transcript has %d lines, want 1 (unchanged)", got)
 	}
 }
+
+func TestRegistersCommandsFromOptions(t *testing.T) {
+	c := newChat("t", WithModelCommand(), WithClearCommand())
+	for _, name := range []string{"model", "clear"} {
+		if _, ok := c.commands[name]; !ok {
+			t.Errorf("command %q not registered", name)
+		}
+	}
+}
+
+func TestWithMCPRegistersMCPCommand(t *testing.T) {
+	c := newChat("t", WithMCP(&recMCP{}))
+	if _, ok := c.commands["mcp"]; !ok {
+		t.Errorf("/mcp not registered by WithMCP")
+	}
+}
+
+func TestHelpListsRegisteredAndBuiltins(t *testing.T) {
+	c := newChat("t", WithModelCommand())
+	h := c.helpText()
+	for _, want := range []string{"model", "/help", "/exit"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("help missing %q:\n%s", want, h)
+		}
+	}
+}
+
+func TestDispatchUnknownCommandErrors(t *testing.T) {
+	c := newTestChat(&fakeRunner{})
+	c.dispatch("/nope")
+	got := c.Transcript()
+	if len(got) != 1 || got[0].Kind != command.Error || !strings.Contains(got[0].Text, "nope") {
+		t.Errorf("unknown command line = %+v", got)
+	}
+}
+
+func TestDispatchExitSignalsQuit(t *testing.T) {
+	c := newTestChat(&fakeRunner{})
+	obs := &countObserver{}
+	c.SetObserver(obs)
+	c.dispatch("/exit")
+	if got := obs.quit.Load(); got != 1 {
+		t.Errorf("Quit fired %d times, want 1", got)
+	}
+}
+
+func TestDispatchRunsRegisteredCommandWithArgs(t *testing.T) {
+	done := make(chan string, 1)
+	c := newChat("t", WithCommand(signalCmd{done: done}))
+	c.dispatch("/sig hello world")
+	select {
+	case args := <-done:
+		if args != "hello world" {
+			t.Errorf("args = %q, want %q", args, "hello world")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("registered command did not run")
+	}
+}
+
+type recMCP struct{}
+
+func (recMCP) GetMCPs() []mcp.Status                   { return nil }
+func (recMCP) Start(_ context.Context, _ string) error { return nil }
+func (recMCP) Stop(_ string) error                     { return nil }
 
 func TestConcurrentAppendsAreSafe(t *testing.T) {
 	c := newTestChat(&fakeRunner{})
