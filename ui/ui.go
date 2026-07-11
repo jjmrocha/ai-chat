@@ -99,6 +99,10 @@ type model struct {
 	// renderedWidth records the width they were rendered at.
 	rendered      []string
 	renderedWidth int
+
+	// lastTheme is the theme used to build styles; when it diverges from
+	// core.Theme() the styles and rendered cache are rebuilt.
+	lastTheme theme.Theme
 }
 
 func newModel(core chatCore) model {
@@ -118,6 +122,7 @@ func newModel(core chatCore) model {
 	return model{
 		core:          core,
 		styles:        sty,
+		lastTheme:     core.Theme(),
 		viewport:      viewport.New(),
 		input:         ti,
 		spinner:       sp,
@@ -220,6 +225,18 @@ func (m model) titleBar() string {
 }
 
 func (m model) refresh() model {
+	// Rebuild styles when the core's theme changes.
+	t := m.core.Theme()
+	if m.lastTheme != t {
+		m.styles = newStyles(t)
+		m.lastTheme = t
+		m.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info))
+		tst := m.input.Styles()
+		tst.Focused.Prompt = m.styles.user
+		m.input.SetStyles(tst)
+		m.rendered = m.rendered[:0]
+	}
+
 	lines := m.core.Transcript()
 
 	// Rebuild the cache from scratch on a width change or a shrink (e.g. /clear);

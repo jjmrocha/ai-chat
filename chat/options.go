@@ -35,6 +35,9 @@ func WithCompactCommand() Option { return WithCommand(command.Compact()) }
 // WithClearCommand registers /clear.
 func WithClearCommand() Option { return WithCommand(command.Clear()) }
 
+// WithThemeCommand registers /theme.
+func WithThemeCommand() Option { return WithCommand(command.Theme()) }
+
 // WithMCP registers /mcp bound to mgr, so the coupling between the command and
 // its manager lives in a single option.
 func WithMCP(mgr command.MCPController) Option {

@@ -63,6 +63,7 @@ func main() {
 		chat.WithEffortCommand(),
 		chat.WithCompactCommand(),
 		chat.WithClearCommand(),
+		chat.WithThemeCommand(),
 	)
 	if err := ui.Run(context.Background(), core); err != nil {
 		log.Fatal(err)

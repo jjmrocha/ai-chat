@@ -6,6 +6,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -264,6 +265,19 @@ func (c *Chat) Clear() error {
 	}
 	c.mu.Lock()
 	c.transcript = nil
+	c.mu.Unlock()
+	c.notify()
+	return nil
+}
+
+// ChangeTheme implements command.Context: switch the active color palette.
+func (c *Chat) ChangeTheme(name string) error {
+	t, ok := theme.ByName(name)
+	if !ok {
+		return fmt.Errorf("unknown theme %q", name)
+	}
+	c.mu.Lock()
+	c.theme = t
 	c.mu.Unlock()
 	c.notify()
 	return nil

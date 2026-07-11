@@ -56,6 +56,9 @@ type Context interface {
 	Print(kind Kind, text string)
 	// Clear resets the agent session and empties the transcript.
 	Clear() error
+	// ChangeTheme switches the active color palette. Returns an error for
+	// unknown theme names.
+	ChangeTheme(name string) error
 }
 
 // Command is a slash command registered with the core. Name is matched after
