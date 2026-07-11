@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,7 +51,14 @@ func (signalCmd) Help() string                         { return "/sig           
 func (s signalCmd) Run(_ command.Context, args string) { s.done <- args }
 
 func newTestChat(r agentBackend) *Chat {
-	return &Chat{name: "T", agent: r, ctx: context.Background(), theme: theme.Default}
+	return &Chat{
+		name:         "T",
+		agent:        r,
+		ctx:          context.Background(),
+		theme:        theme.Default,
+		telemetryFmt: defaultTelemetryFormatter,
+		statusFmt:    defaultStatusFormatter,
+	}
 }
 
 func TestProcessAppendsUserThenReply(t *testing.T) {
@@ -62,8 +70,8 @@ func TestProcessAppendsUserThenReply(t *testing.T) {
 	c.process(context.Background(), "hello")
 
 	got := c.Transcript()
-	if len(got) != 2 {
-		t.Fatalf("want 2 lines, got %d: %+v", len(got), got)
+	if len(got) != 3 {
+		t.Fatalf("want 3 lines (user, reply, telemetry), got %d: %+v", len(got), got)
 	}
 	if got[0].Kind != command.User || !strings.Contains(got[0].Text, "hello") {
 		t.Errorf("user line = %+v", got[0])
@@ -216,6 +224,81 @@ func TestDispatchRunsRegisteredCommandWithArgs(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("registered command did not run")
+	}
+}
+
+func TestDefaultTelemetryFormat(t *testing.T) {
+	got := defaultTelemetryFormatter(agent.Metadata{
+		ToolCalls:    2,
+		LLMDuration:  1300 * time.Millisecond,
+		OutputTokens: 412,
+	})
+	want := "[2 tool calls · 1.3s llm · 412 out tok]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestDefaultTelemetryEmpty(t *testing.T) {
+	if got := defaultTelemetryFormatter(agent.Metadata{}); got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}
+
+func TestDefaultStatusFormat(t *testing.T) {
+	p := llm.ProviderOpenRouter
+	got := defaultStatusFormatter(StatusInfo{
+		Name:     "m",
+		Provider: p,
+		Effort:   llm.EffortMedium,
+		CtxPct:   12,
+		Tokens:   8400,
+	})
+	want := fmt.Sprintf("m (%s) · medium · ctx:12%% · 8.40K tok", p)
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestDefaultStatusOmitsEffortOffAndProvider(t *testing.T) {
+	got := defaultStatusFormatter(StatusInfo{Name: "m", Effort: llm.EffortOff})
+	want := "m · ctx:0% · 0 tok"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestProcessAppendsTelemetryLine(t *testing.T) {
+	c := newTestChat(&fakeRunner{resp: &agent.Response{
+		Content:  "hi",
+		Metadata: agent.Metadata{OutputTokens: 5},
+	}})
+	c.process(context.Background(), "x")
+	got := c.Transcript()
+	if len(got) != 3 {
+		t.Fatalf("want 3 lines (user, reply, telemetry), got %d: %+v", len(got), got)
+	}
+	if got[2].Kind != command.Telemetry || !strings.Contains(got[2].Text, "out tok") {
+		t.Errorf("telemetry line = %+v", got[2])
+	}
+}
+
+func TestWithTelemetryFormatterOverrides(t *testing.T) {
+	c := newChat("t", WithTelemetryFormatter(func(agent.Metadata) string { return "CUSTOM" }))
+	c.agent = &fakeRunner{resp: &agent.Response{Content: "hi", Metadata: agent.Metadata{OutputTokens: 5}}}
+	c.process(context.Background(), "x")
+	got := c.Transcript()
+	last := got[len(got)-1]
+	if last.Kind != command.Telemetry || last.Text != "CUSTOM" {
+		t.Errorf("telemetry line = %+v", last)
+	}
+}
+
+func TestWithStatusFormatterOverrides(t *testing.T) {
+	c := newChat("t", WithStatusFormatter(func(StatusInfo) string { return "CUSTOM" }))
+	c.agent = &fakeRunner{}
+	if got := c.StatusText(); got != "CUSTOM" {
+		t.Errorf("StatusText() = %q, want CUSTOM", got)
 	}
 }
 

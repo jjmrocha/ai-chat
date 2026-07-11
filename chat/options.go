@@ -40,3 +40,13 @@ func WithClearCommand() Option { return WithCommand(command.Clear()) }
 func WithMCP(mgr command.MCPController) Option {
 	return WithCommand(command.MCP(mgr))
 }
+
+// WithTelemetryFormatter overrides the per-turn telemetry line formatter.
+func WithTelemetryFormatter(f TelemetryFormatter) Option {
+	return func(c *Chat) { c.telemetryFmt = f }
+}
+
+// WithStatusFormatter overrides the bottom status-bar formatter.
+func WithStatusFormatter(f StatusFormatter) Option {
+	return func(c *Chat) { c.statusFmt = f }
+}

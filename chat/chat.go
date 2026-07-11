@@ -55,7 +55,9 @@ type Chat struct {
 	agent agentBackend
 	ctx   context.Context
 
-	commands map[string]command.Command
+	commands     map[string]command.Command
+	telemetryFmt TelemetryFormatter
+	statusFmt    StatusFormatter
 
 	mu         sync.Mutex
 	transcript []Line
@@ -69,10 +71,12 @@ type Chat struct {
 // wire an agent, so tests can construct a core without a live model.
 func newChat(name string, opts ...Option) *Chat {
 	c := &Chat{
-		name:     name,
-		ctx:      context.Background(),
-		theme:    theme.Default,
-		commands: map[string]command.Command{},
+		name:         name,
+		ctx:          context.Background(),
+		theme:        theme.Default,
+		commands:     map[string]command.Command{},
+		telemetryFmt: defaultTelemetryFormatter,
+		statusFmt:    defaultStatusFormatter,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -219,10 +223,31 @@ func (c *Chat) process(ctx context.Context, text string) {
 		c.append(command.Error, "Error: "+err.Error())
 	case resp != nil:
 		c.append(command.Reply, resp.Content)
+		if line := c.telemetryFmt(resp.Metadata); line != "" {
+			c.append(command.Telemetry, line)
+		}
 	default:
 		c.notify()
 	}
 }
+
+// Status assembles the current status data from the agent and last turn.
+func (c *Chat) Status() StatusInfo {
+	meta := c.LastMetadata()
+	info := StatusInfo{Tokens: meta.TotalTokens}
+	if mi := c.agent.ModelInfo(c.ctx); mi != nil {
+		info.Name = mi.ModelName
+		info.Provider = mi.Provider
+		info.Effort = mi.Effort
+		if mi.ModelContextSize > 0 {
+			info.CtxPct = float64(meta.TotalTokens) * 100 / float64(mi.ModelContextSize)
+		}
+	}
+	return info
+}
+
+// StatusText renders the status bar as plain text via the status formatter.
+func (c *Chat) StatusText() string { return c.statusFmt(c.Status()) }
 
 // Print implements command.Context.
 func (c *Chat) Print(kind command.Kind, text string) { c.append(kind, text) }

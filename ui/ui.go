@@ -42,20 +42,22 @@ func (o *observer) Quit() {
 // styles holds the lipgloss styles derived from a theme, one per line Kind plus
 // the footer. The core stores the theme as data; only the UI turns it into styles.
 type styles struct {
-	user     lipgloss.Style
-	info     lipgloss.Style
-	err      lipgloss.Style
-	activity lipgloss.Style
-	footer   lipgloss.Style
+	user      lipgloss.Style
+	info      lipgloss.Style
+	err       lipgloss.Style
+	activity  lipgloss.Style
+	telemetry lipgloss.Style
+	footer    lipgloss.Style
 }
 
 func newStyles(t theme.Theme) styles {
 	return styles{
-		user:     lipgloss.NewStyle().Foreground(lipgloss.Color(t.User)).Bold(true),
-		info:     lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info)),
-		err:      lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error)),
-		activity: lipgloss.NewStyle().Foreground(lipgloss.Color(t.Activity)).Italic(true),
-		footer:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Footer)).Italic(true),
+		user:      lipgloss.NewStyle().Foreground(lipgloss.Color(t.User)).Bold(true),
+		info:      lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info)),
+		err:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error)),
+		activity:  lipgloss.NewStyle().Foreground(lipgloss.Color(t.Activity)).Italic(true),
+		telemetry: lipgloss.NewStyle().Foreground(lipgloss.Color(t.Telemetry)).Italic(true),
+		footer:    lipgloss.NewStyle().Foreground(lipgloss.Color(t.Footer)).Italic(true),
 	}
 }
 
@@ -69,6 +71,8 @@ func (s styles) line(kind command.Kind, text string) string {
 		return s.err.Render(text)
 	case command.Activity:
 		return s.activity.Render(text)
+	case command.Telemetry:
+		return s.telemetry.Render(text)
 	default: // command.Reply
 		return text
 	}
@@ -137,7 +141,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() tea.View {
 	content := "Initializing…"
 	if m.ready {
-		status := m.core.Name()
+		status := m.core.StatusText()
 		if m.core.Busy() {
 			status = "thinking…"
 		}

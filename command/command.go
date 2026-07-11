@@ -27,6 +27,8 @@ const (
 	Error
 	// Activity is transient agent activity (tool calls, compaction).
 	Activity
+	// Telemetry is the per-turn usage/timing line shown after a reply.
+	Telemetry
 )
 
 // AgentController is the slice of agent operations commands may drive. The core
