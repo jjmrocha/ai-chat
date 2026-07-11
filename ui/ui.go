@@ -13,6 +13,8 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/jjmrocha/ai-chat/chat"
+	"github.com/jjmrocha/ai-chat/command"
+	"github.com/jjmrocha/ai-chat/theme"
 )
 
 const frameHeight = 3 // input + rule + status line
@@ -28,8 +30,44 @@ func (o *observer) TranscriptChanged() {
 	}
 }
 
+// styles holds the lipgloss styles derived from a theme, one per line Kind plus
+// the footer. The core stores the theme as data; only the UI turns it into styles.
+type styles struct {
+	user     lipgloss.Style
+	info     lipgloss.Style
+	err      lipgloss.Style
+	activity lipgloss.Style
+	footer   lipgloss.Style
+}
+
+func newStyles(t theme.Theme) styles {
+	return styles{
+		user:     lipgloss.NewStyle().Foreground(lipgloss.Color(t.User)).Bold(true),
+		info:     lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info)),
+		err:      lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error)),
+		activity: lipgloss.NewStyle().Foreground(lipgloss.Color(t.Activity)).Italic(true),
+		footer:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Footer)).Italic(true),
+	}
+}
+
+func (s styles) line(kind command.Kind, text string) string {
+	switch kind {
+	case command.User:
+		return s.user.Render(text)
+	case command.Info:
+		return s.info.Render(text)
+	case command.Error:
+		return s.err.Render(text)
+	case command.Activity:
+		return s.activity.Render(text)
+	default: // command.Reply
+		return text
+	}
+}
+
 type model struct {
 	core     *chat.Chat
+	styles   styles
 	viewport viewport.Model
 	input    textinput.Model
 	width    int
@@ -42,6 +80,7 @@ func newModel(core *chat.Chat) model {
 	ti.Focus()
 	return model{
 		core:     core,
+		styles:   newStyles(core.Theme()),
 		viewport: viewport.New(),
 		input:    ti,
 	}
@@ -93,7 +132,7 @@ func (m model) View() tea.View {
 		frame := lipgloss.JoinVertical(lipgloss.Left,
 			m.input.View(),
 			strings.Repeat("─", m.width),
-			status,
+			m.styles.footer.Render(status),
 		)
 		content = lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), frame)
 	}
@@ -110,7 +149,7 @@ func (m model) refresh() model {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString(ln.Text)
+		b.WriteString(m.styles.line(ln.Kind, ln.Text))
 	}
 	m.viewport.SetContent(b.String())
 	m.viewport.GotoBottom()

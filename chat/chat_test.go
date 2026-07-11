@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jjmrocha/ai-chat/command"
+	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-toolkit/agent"
 )
 
@@ -91,6 +92,20 @@ func TestToolCalledAppendsActivity(t *testing.T) {
 	got := c.Transcript()
 	if len(got) != 1 || got[0].Kind != command.Activity || !strings.Contains(got[0].Text, "search") {
 		t.Errorf("tool activity = %+v", got)
+	}
+}
+
+func TestThemeDefaultsWhenUnset(t *testing.T) {
+	c := newChat("T")
+	if c.Theme() != theme.Default {
+		t.Errorf("Theme() = %+v, want Default", c.Theme())
+	}
+}
+
+func TestWithThemeOverridesDefault(t *testing.T) {
+	c := newChat("T", WithTheme(theme.Nord))
+	if c.Theme() != theme.Nord {
+		t.Errorf("Theme() = %+v, want Nord", c.Theme())
 	}
 }
 

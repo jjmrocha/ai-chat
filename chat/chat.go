@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/jjmrocha/ai-chat/command"
+	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-toolkit/agent"
 )
 
@@ -47,18 +48,41 @@ type Chat struct {
 	observer   Observer
 	busy       bool
 	lastMeta   agent.Metadata
+	theme      theme.Theme
+}
+
+// Option configures a Chat at construction.
+type Option func(*Chat)
+
+// WithTheme sets the color palette the UI applies. Defaults to theme.Default.
+func WithTheme(t theme.Theme) Option {
+	return func(c *Chat) { c.theme = t }
+}
+
+// newChat builds a Chat with defaults applied, then the options. It does not
+// wire an agent, so tests can construct a core without a live model.
+func newChat(name string, opts ...Option) *Chat {
+	c := &Chat{name: name, theme: theme.Default}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // New builds a Chat over ag and installs itself as the agent's feedback sink so
 // tool-call and compaction events flow into the transcript.
-func New(name string, ag *agent.Agent) *Chat {
-	c := &Chat{name: name, agent: ag}
+func New(name string, ag *agent.Agent, opts ...Option) *Chat {
+	c := newChat(name, opts...)
+	c.agent = ag
 	ag.SetFeedback(c)
 	return c
 }
 
 // Name is the display name given at construction.
 func (c *Chat) Name() string { return c.name }
+
+// Theme returns the color palette selected at construction.
+func (c *Chat) Theme() theme.Theme { return c.theme }
 
 // SetObserver registers the single observer notified on transcript changes.
 func (c *Chat) SetObserver(o Observer) {
