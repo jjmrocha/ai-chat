@@ -1,6 +1,6 @@
 // Package ui renders a chat.Chat as a Bubble Tea terminal program. It observes
 // the core and re-renders on every transcript change; it holds no conversation
-// state of its own.
+// state of its own beyond a cache of already-rendered lines.
 package ui
 
 import (
@@ -19,7 +19,7 @@ import (
 	"github.com/jjmrocha/ai-chat/theme"
 )
 
-const frameHeight = 4 // header + input + rule + status line
+const frameHeight = 4 // title + input + rule + status line
 
 type (
 	refreshMsg struct{}
@@ -57,33 +57,19 @@ type styles struct {
 }
 
 func newStyles(t theme.Theme) styles {
-	return styles{
-		headerName: lipgloss.NewStyle().Foreground(lipgloss.Color(t.HeaderName)).Bold(true),
-		user:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.User)).Bold(true),
-		info:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info)),
-		err:        lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error)),
-		activity:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Activity)).Italic(true),
-		telemetry:  lipgloss.NewStyle().Foreground(lipgloss.Color(t.Telemetry)).Italic(true),
-		rule:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.Rule)),
-		turnSep:    lipgloss.NewStyle().Foreground(lipgloss.Color(t.TurnSep)),
-		footer:     lipgloss.NewStyle().Foreground(lipgloss.Color(t.Footer)).Italic(true),
+	fg := func(hex string) lipgloss.Style {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(hex))
 	}
-}
-
-func (s styles) line(kind command.Kind, text string) string {
-	switch kind {
-	case command.User:
-		return s.user.Render(text)
-	case command.Info:
-		return s.info.Render(text)
-	case command.Error:
-		return s.err.Render(text)
-	case command.Activity:
-		return s.activity.Render(text)
-	case command.Telemetry:
-		return s.telemetry.Render(text)
-	default: // command.Reply
-		return text
+	return styles{
+		headerName: fg(t.HeaderName).Bold(true),
+		user:       fg(t.User).Bold(true),
+		info:       fg(t.Info),
+		err:        fg(t.Error),
+		activity:   fg(t.Activity).Italic(true),
+		telemetry:  fg(t.Telemetry).Italic(true),
+		rule:       fg(t.Rule),
+		turnSep:    fg(t.TurnSep),
+		footer:     fg(t.Footer).Italic(true),
 	}
 }
 
@@ -107,27 +93,45 @@ type model struct {
 	renderer *glamour.TermRenderer
 	width    int
 	ready    bool
+
+	// rendered caches each transcript line's rendered form; lines are
+	// append-only and immutable, so each is rendered (and markdown-parsed) once.
+	// renderedWidth records the width they were rendered at.
+	rendered      []string
+	renderedWidth int
 }
 
 func newModel(core chatCore) model {
-	ti := textinput.New()
-	ti.Prompt = "> "
-	ti.Focus()
-	ti.Placeholder = "type /help for commands"
+	sty := newStyles(core.Theme())
 
-	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithStandardStyle("dark"),
-		glamour.WithWordWrap(0),
-	)
+	ti := textinput.New()
+	ti.Prompt = "❯ "
+	ti.Placeholder = "Send a message…  (/help for commands)"
+	ti.Focus()
+	tst := ti.Styles()
+	tst.Focused.Prompt = sty.user
+	ti.SetStyles(tst)
+
+	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(core.Theme().Info))
 
 	return model{
-		core:     core,
-		styles:   newStyles(core.Theme()),
-		viewport: viewport.New(),
-		input:    ti,
-		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
-		renderer: renderer,
+		core:          core,
+		styles:        sty,
+		viewport:      viewport.New(),
+		input:         ti,
+		spinner:       sp,
+		renderer:      newRenderer(0),
+		renderedWidth: -1,
 	}
+}
+
+func newRenderer(width int) *glamour.TermRenderer {
+	r, _ := glamour.NewTermRenderer(
+		glamour.WithStandardStyle("dark"),
+		glamour.WithWordWrap(width),
+	)
+	return r
 }
 
 func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, m.spinner.Tick) }
@@ -135,16 +139,13 @@ func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, m.spinner.Tick
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		if msg.Width != m.width {
+			m.renderer = newRenderer(msg.Width)
+		}
 		m.width = msg.Width
 		m.viewport.SetWidth(msg.Width)
 		m.viewport.SetHeight(max(msg.Height-frameHeight, 0))
 		m.input.SetWidth(max(msg.Width-2, 0))
-		if r, err := glamour.NewTermRenderer(
-			glamour.WithStandardStyle("dark"),
-			glamour.WithWordWrap(msg.Width),
-		); err == nil {
-			m.renderer = r
-		}
 		m.ready = true
 		return m.refresh(), nil
 
@@ -183,17 +184,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() tea.View {
 	content := "Initializing…"
 	if m.ready {
-		status := m.core.StatusText()
+		status := m.styles.footer.Render(m.core.StatusText())
 		if m.core.Busy() {
-			status = m.spinner.View() + " thinking…"
+			status = m.spinner.View() + m.styles.footer.Render(" thinking…")
 		}
-		frame := lipgloss.JoinVertical(lipgloss.Left,
-			m.header(),
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			m.titleBar(),
+			m.viewport.View(),
 			m.input.View(),
-			m.styles.rule.Render(strings.Repeat("─", m.width)),
-			m.styles.footer.Render(status),
+			m.styles.rule.Render(m.hrule()),
+			status,
 		)
-		content = lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), frame)
 	}
 
 	v := tea.NewView(content)
@@ -202,41 +203,72 @@ func (m model) View() tea.View {
 	return v
 }
 
-// header renders the chat name inset in a horizontal rule.
-func (m model) header() string {
+func (m model) hrule() string { return strings.Repeat("─", m.width) }
+
+// titleBar renders the chat name inset in a horizontal rule at the top.
+func (m model) titleBar() string {
 	name := m.core.Name()
 	if name == "" {
-		return m.styles.rule.Render(strings.Repeat("─", m.width))
+		return m.styles.rule.Render(m.hrule())
 	}
 	label := " " + name + " "
-	bar := strings.Repeat("─", max(0, m.width-lipgloss.Width(label))/2)
-	return m.styles.headerName.Render(bar + label + bar)
+	side := max(0, m.width-lipgloss.Width(label))
+	left := m.styles.rule.Render(strings.Repeat("─", side/2))
+	right := m.styles.rule.Render(strings.Repeat("─", side-side/2))
+	return left + m.styles.headerName.Render(label) + right
 }
 
 func (m model) refresh() model {
-	var b strings.Builder
-	for i, ln := range m.core.Transcript() {
-		if i > 0 {
-			b.WriteString("\n\n")
-		}
-		b.WriteString(m.renderBlock(ln))
+	lines := m.core.Transcript()
+
+	// Rebuild the cache from scratch on a width change or a shrink (e.g. /clear);
+	// otherwise render only the newly-appended lines.
+	if m.renderedWidth != m.width || len(lines) < len(m.rendered) {
+		m.rendered = m.rendered[:0]
+		m.renderedWidth = m.width
 	}
-	m.viewport.SetContent(b.String())
+	for i := len(m.rendered); i < len(lines); i++ {
+		m.rendered = append(m.rendered, m.renderBlock(lines[i]))
+	}
+
+	if len(m.rendered) == 0 {
+		m.viewport.SetContent(m.welcome())
+	} else {
+		m.viewport.SetContent(strings.Join(m.rendered, "\n\n"))
+	}
 	m.viewport.GotoBottom()
 	return m
 }
 
-// renderBlock styles a transcript line. Replies are rendered as markdown; a
-// telemetry line is preceded by a turn separator.
+// welcome is the empty-state shown before the first message.
+func (m model) welcome() string {
+	name := m.core.Name()
+	if name == "" {
+		name = "Chat"
+	}
+	return "\n" + m.styles.headerName.Render(name) + "\n\n" +
+		m.styles.footer.Render("Send a message and press Enter · /help for commands · Ctrl+C to quit")
+}
+
+// renderBlock styles one transcript line by its Kind: replies as markdown, a
+// telemetry line under a turn separator, everything else as a themed line.
 func (m model) renderBlock(ln chat.Line) string {
+	s := m.styles
 	switch ln.Kind {
+	case command.User:
+		return s.user.Render(ln.Text)
+	case command.Info:
+		return s.info.Render(ln.Text)
+	case command.Error:
+		return s.err.Render(ln.Text)
+	case command.Activity:
+		return s.activity.Render(ln.Text)
+	case command.Telemetry:
+		return s.turnSep.Render(m.hrule()) + "\n" + s.telemetry.Render(ln.Text)
 	case command.Reply:
 		return m.renderMarkdown(ln.Text)
-	case command.Telemetry:
-		sep := m.styles.turnSep.Render(strings.Repeat("━", m.width))
-		return sep + "\n" + m.styles.telemetry.Render(ln.Text)
 	default:
-		return m.styles.line(ln.Kind, ln.Text)
+		return ln.Text
 	}
 }
 

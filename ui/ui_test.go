@@ -65,6 +65,29 @@ func TestViewBusyShowsSpinnerStatus(t *testing.T) {
 	}
 }
 
+func TestViewEmptyShowsWelcome(t *testing.T) {
+	m := sized(newModel(&fakeCore{name: "CHAT"}), 80, 24)
+	content := m.View().Content
+	if !strings.Contains(content, "/help") {
+		t.Errorf("empty view should hint at /help, got: %q", content)
+	}
+}
+
+func TestRefreshRebuildsAfterClear(t *testing.T) {
+	c := populatedCore()
+	m := sized(newModel(c), 80, 24)
+	// Simulate /clear: the transcript shrinks to a single line.
+	c.lines = []chat.Line{{Kind: command.Info, Text: "Context cleared."}}
+	m = sized(m, 80, 24) // re-refresh at the same width
+	content := m.View().Content
+	if !strings.Contains(content, "Context cleared.") {
+		t.Errorf("cleared content missing: %q", content)
+	}
+	if strings.Contains(content, "boom") {
+		t.Errorf("stale pre-clear content still rendered: %q", content)
+	}
+}
+
 func TestViewBeforeReadyDoesNotPanic(t *testing.T) {
 	m := newModel(populatedCore())
 	if m.View().Content == "" {
