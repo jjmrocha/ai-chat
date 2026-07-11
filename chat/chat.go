@@ -12,11 +12,13 @@ import (
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-toolkit/agent"
+	"github.com/jjmrocha/ai-toolkit/llm"
 )
 
 var (
-	_ agent.Feedback  = (*Chat)(nil)
-	_ command.Context = (*Chat)(nil)
+	_ agent.Feedback          = (*Chat)(nil)
+	_ command.Context         = (*Chat)(nil)
+	_ command.AgentController = (*Chat)(nil)
 )
 
 // Line is one transcript entry: its text and the Kind the UI styles it by.
@@ -31,17 +33,24 @@ type Observer interface {
 	TranscriptChanged()
 }
 
-// agentRunner is the slice of *agent.Agent the core drives. Kept as an
+// agentBackend is the slice of *agent.Agent the core drives. Kept as an
 // interface so the core is testable without a live model.
-type agentRunner interface {
+type agentBackend interface {
 	Process(ctx context.Context, input string) (*agent.Response, error)
+	ChangeModel(name string) error
+	ChangeEffort(e llm.Effort)
+	AvailableModels() []string
+	ModelInfo(ctx context.Context) *agent.ModelInfo
+	CompactContext(ctx context.Context)
+	ResetSession() error
 }
 
 // Chat owns the transcript and mediates between the agent and the UI. All state
 // is guarded by mu; observer notifications fire outside the lock.
 type Chat struct {
 	name  string
-	agent agentRunner
+	agent agentBackend
+	ctx   context.Context
 
 	mu         sync.Mutex
 	transcript []Line
@@ -62,7 +71,7 @@ func WithTheme(t theme.Theme) Option {
 // newChat builds a Chat with defaults applied, then the options. It does not
 // wire an agent, so tests can construct a core without a live model.
 func newChat(name string, opts ...Option) *Chat {
-	c := &Chat{name: name, theme: theme.Default}
+	c := &Chat{name: name, ctx: context.Background(), theme: theme.Default}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -156,6 +165,39 @@ func (c *Chat) process(ctx context.Context, text string) {
 
 // Print implements command.Context.
 func (c *Chat) Print(kind command.Kind, text string) { c.append(kind, text) }
+
+// Agent implements command.Context, exposing the agent operations commands may
+// drive. The core is its own controller, supplying the request context.
+func (c *Chat) Agent() command.AgentController { return c }
+
+// Clear implements command.Context: reset the agent session and empty the
+// transcript. On reset failure the transcript is left intact.
+func (c *Chat) Clear() error {
+	if err := c.agent.ResetSession(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.transcript = nil
+	c.mu.Unlock()
+	c.notify()
+	return nil
+}
+
+// ChangeModel implements command.AgentController.
+func (c *Chat) ChangeModel(name string) error { return c.agent.ChangeModel(name) }
+
+// ChangeEffort implements command.AgentController.
+func (c *Chat) ChangeEffort(e llm.Effort) { c.agent.ChangeEffort(e) }
+
+// AvailableModels implements command.AgentController.
+func (c *Chat) AvailableModels() []string { return c.agent.AvailableModels() }
+
+// ModelInfo implements command.AgentController.
+func (c *Chat) ModelInfo() *agent.ModelInfo { return c.agent.ModelInfo(c.ctx) }
+
+// Compact implements command.AgentController: run context compaction. The
+// outcome arrives through the agent's feedback events.
+func (c *Chat) Compact() { c.agent.CompactContext(c.ctx) }
 
 // ToolCalled implements agent.Feedback.
 func (c *Chat) ToolCalled(name string) { c.append(command.Activity, "● tool: "+name) }

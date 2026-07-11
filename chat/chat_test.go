@@ -10,12 +10,15 @@ import (
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-toolkit/agent"
+	"github.com/jjmrocha/ai-toolkit/llm"
 )
 
 type fakeRunner struct {
-	resp  *agent.Response
-	err   error
-	calls atomic.Int64
+	resp     *agent.Response
+	err      error
+	calls    atomic.Int64
+	resetErr error
+	reset    int
 }
 
 func (f *fakeRunner) Process(ctx context.Context, input string) (*agent.Response, error) {
@@ -23,11 +26,20 @@ func (f *fakeRunner) Process(ctx context.Context, input string) (*agent.Response
 	return f.resp, f.err
 }
 
+func (f *fakeRunner) ChangeModel(string) error                   { return nil }
+func (f *fakeRunner) ChangeEffort(llm.Effort)                    {}
+func (f *fakeRunner) AvailableModels() []string                  { return nil }
+func (f *fakeRunner) ModelInfo(context.Context) *agent.ModelInfo { return nil }
+func (f *fakeRunner) CompactContext(context.Context)             {}
+func (f *fakeRunner) ResetSession() error                        { f.reset++; return f.resetErr }
+
 type countObserver struct{ n atomic.Int64 }
 
 func (o *countObserver) TranscriptChanged() { o.n.Add(1) }
 
-func newTestChat(r agentRunner) *Chat { return &Chat{name: "T", agent: r} }
+func newTestChat(r agentBackend) *Chat {
+	return &Chat{name: "T", agent: r, ctx: context.Background(), theme: theme.Default}
+}
 
 func TestProcessAppendsUserThenReply(t *testing.T) {
 	c := newTestChat(&fakeRunner{resp: &agent.Response{
@@ -106,6 +118,33 @@ func TestWithThemeOverridesDefault(t *testing.T) {
 	c := newChat("T", WithTheme(theme.Nord))
 	if c.Theme() != theme.Nord {
 		t.Errorf("Theme() = %+v, want Nord", c.Theme())
+	}
+}
+
+func TestClearResetsAndEmptiesTranscript(t *testing.T) {
+	f := &fakeRunner{}
+	c := newTestChat(f)
+	c.ToolCalled("x")
+	if err := c.Clear(); err != nil {
+		t.Fatalf("Clear() error: %v", err)
+	}
+	if f.reset != 1 {
+		t.Errorf("ResetSession called %d times, want 1", f.reset)
+	}
+	if got := len(c.Transcript()); got != 0 {
+		t.Errorf("transcript has %d lines after clear, want 0", got)
+	}
+}
+
+func TestClearKeepsTranscriptOnResetError(t *testing.T) {
+	f := &fakeRunner{resetErr: context.Canceled}
+	c := newTestChat(f)
+	c.ToolCalled("x")
+	if err := c.Clear(); err == nil {
+		t.Fatal("Clear() returned nil, want error")
+	}
+	if got := len(c.Transcript()); got != 1 {
+		t.Errorf("transcript has %d lines, want 1 (unchanged)", got)
 	}
 }
 

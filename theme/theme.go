@@ -16,19 +16,6 @@ type Theme struct {
 	Telemetry  string
 }
 
-// Default is the palette used when no theme is supplied.
-var Default = Theme{
-	HeaderName: "#FF9F1C",
-	User:       "#FF9F1C",
-	Footer:     "#94A3B8",
-	Error:      "#F87171",
-	Info:       "#00B4D8",
-	Activity:   "#94A3B8",
-	Rule:       "#4A5568",
-	TurnSep:    "#4A5568",
-	Telemetry:  "#94A3B8",
-}
-
 // Monokai is the classic Monokai palette.
 var Monokai = Theme{
 	HeaderName: "#F92672",
@@ -68,8 +55,8 @@ var Catppuccin = Theme{
 	Telemetry:  "#6C7086",
 }
 
-// Modern is a high-contrast palette with warm accents.
-var Modern = Theme{
+// Default is the palette used when no theme is supplied.
+var Default = Theme{
 	HeaderName: "#FF6B35",
 	User:       "#FF6B35",
 	Footer:     "#E2E8F0",
