@@ -1,14 +1,13 @@
-// Command chatdemo launches the chat UI against a single model so the terminal
-// interface can be tried by hand. It registers no tools.
+// Command ai-chat launches the terminal chat UI backed by an ai-toolkit agent.
+//
+// It connects to OpenRouter, reading the API key from the OPEN_ROUTER_KEY
+// environment variable, and registers the Playwright MCP server with the agent's
+// tool manager.
 //
 // Usage:
 //
-//	# Ollama (no API key needed), default provider:
-//	go run ./cmd/chatdemo -model llama3.2
-//
-//	# OpenRouter (reads OPENROUTER_API_KEY from the environment):
-//	export OPENROUTER_API_KEY=sk-...
-//	go run ./cmd/chatdemo -provider openrouter -model openai/gpt-4o-mini
+//	export OPEN_ROUTER_KEY=sk-...
+//	go run ./cmd
 package main
 
 import (
@@ -27,8 +26,11 @@ func main() {
 	client, err := llm.New(llm.Config{
 		Provider: llm.ProviderOpenRouter,
 		APIKey:   os.Getenv("OPEN_ROUTER_KEY"),
-		Model:    "minimax/minimax-m2.7",
-		Effort:   llm.EffortMedium,
+		Model:    "deepseek/deepseek-v4-flash",
+		Models: []string{"deepseek/deepseek-v4-flash",
+			"deepseek/deepseek-v4-pro",
+			"xiaomi/mimo-v2.5"},
+		Effort: llm.EffortMedium,
 	})
 	if err != nil {
 		panic(err)
@@ -36,20 +38,14 @@ func main() {
 
 	toolBox := tools.NewToolBox()
 
-	mcpClient, err := mcp.NewClient(context.Background(), mcp.ClientConfig{
+	mcpMng := mcp.NewManager(toolBox)
+	defer mcpMng.Close()
+
+	mcpMng.RegisterClient(mcp.ClientConfig{
 		Name:    "playwright",
 		Command: "npx",
 		Args:    []string{"@playwright/mcp@latest"},
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer mcpClient.Close()
-
-	err = mcpClient.RegisterTools(context.Background(), toolBox)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	ag, err := agent.New(agent.Config{}, client, toolBox)
 	if err != nil {
@@ -62,6 +58,9 @@ func main() {
 	c := chat.New(ag, chat.Config{
 		Name:        "CHAT",
 		Description: "A minimal terminal chat over an LLM agent.",
+		MCP:         mcpMng,
 	})
-	c.Run(context.Background())
+	if err := c.Run(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 }

@@ -1,6 +1,6 @@
 module github.com/jjmrocha/ai-chat
 
-go 1.26.4
+go 1.26.5
 
 require (
 	charm.land/bubbles/v2 v2.1.0
@@ -8,7 +8,7 @@ require (
 	charm.land/glamour/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.4
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
-	github.com/jjmrocha/ai-toolkit v0.1.2
+	github.com/jjmrocha/ai-toolkit v0.1.3
 )
 
 require (

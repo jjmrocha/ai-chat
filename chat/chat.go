@@ -14,6 +14,7 @@ import (
 
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
+	"github.com/jjmrocha/ai-toolkit/mcp"
 )
 
 var (
@@ -26,6 +27,13 @@ type Config struct {
 	Description string
 	Font        string
 	ThemeName   string
+	MCP         mcpController
+}
+
+type mcpController interface {
+	GetMCPs() []mcp.Status
+	Start(ctx context.Context, name string) error
+	Stop(name string) error
 }
 
 type agentController interface {
@@ -43,8 +51,14 @@ type (
 		resp *agent.Response
 		err  error
 	}
-	toolCalledMsg struct{ name string }
-	compactedMsg  struct{}
+	toolCalledMsg    struct{ name string }
+	compactedMsg     struct{}
+	compactFailedMsg struct{}
+	mcpDoneMsg       struct {
+		action string
+		name   string
+		err    error
+	}
 )
 
 type bridge struct {
@@ -57,11 +71,12 @@ func (b *bridge) send(msg tea.Msg) {
 	}
 }
 
-func (b *bridge) ToolCalled(name string) { b.send(toolCalledMsg{name: name}) }
-func (b *bridge) ContextCompacted()      { b.send(compactedMsg{}) }
-func (b *bridge) SessionReset()          {}
-func (b *bridge) SessionStarted()        {}
-func (b *bridge) SessionClosed()         {}
+func (b *bridge) ToolCalled(name string)   { b.send(toolCalledMsg{name: name}) }
+func (b *bridge) ContextCompacted()        { b.send(compactedMsg{}) }
+func (b *bridge) ContextCompactionFailed() { b.send(compactFailedMsg{}) }
+func (b *bridge) SessionReset()            {}
+func (b *bridge) SessionStarted()          {}
+func (b *bridge) SessionClosed()           {}
 
 const frameHeight = 5 // top rule + input + bottom rule + status + blank
 
@@ -207,6 +222,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.refresh()
 		return m, nil
 
+	case compactFailedMsg:
+		m = m.appendBlock(m.errorStyle.Width(m.width).Render("Context compaction failed; will retry after the next turn."))
+		m = m.refresh()
+		return m, nil
+
+	case mcpDoneMsg:
+		if msg.err != nil {
+			m = m.appendBlock(m.errorStyle.Width(m.width).Render("Error: " + msg.err.Error()))
+		} else {
+			verb := "started"
+			if msg.action == "off" {
+				verb = "stopped"
+			}
+			m = m.appendBlock(m.infoStyle.Width(m.width).Render("MCP " + msg.name + " " + verb + "."))
+		}
+		m = m.refresh()
+		return m, nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -308,17 +341,19 @@ func (m model) runCommand(input string) (model, tea.Cmd) {
 		return m.appendBlock(m.infoStyle.Width(m.width).Render("Effort: " + string(e))), nil
 
 	case "compact":
-		m.agent.CompactContext(m.ctx)
-		return m.appendBlock(m.activityStyle.Render("● context compacted")), nil
+		return m, m.compactCmd()
+
+	case "mcp":
+		return m.runMCPCommand(args)
 
 	case "theme":
 		if args == "" {
 			names := themeNames()
-			return m.appendBlock(m.infoStyle.Width(m.width).Render("Themes: "+strings.Join(names, ", "))), nil
+			return m.appendBlock(m.infoStyle.Width(m.width).Render("Themes: " + strings.Join(names, ", "))), nil
 		}
 		if _, ok := lookupTheme(args); !ok {
 			names := themeNames()
-			return m.appendBlock(m.errorStyle.Width(m.width).Render("Unknown theme. Available: "+strings.Join(names, ", "))), nil
+			return m.appendBlock(m.errorStyle.Width(m.width).Render("Unknown theme. Available: " + strings.Join(names, ", "))), nil
 		}
 		m.applyTheme(args)
 		m = m.refresh()
@@ -334,6 +369,7 @@ func (m model) runCommand(input string) (model, tea.Cmd) {
 			"  /models         List available models",
 			"  /effort <level> Set reasoning effort (off, low, medium, max)",
 			"  /compact        Force context compaction",
+			"  /mcp [on|off] [name]  Show or toggle MCP servers",
 			"  /theme [name]   Show or switch color theme",
 			"  /clear          Reset conversation",
 			"  /help           Show this message",
@@ -350,6 +386,81 @@ func (m model) processCmd(text string) tea.Cmd {
 	return func() tea.Msg {
 		resp, err := m.agent.Process(m.ctx, text)
 		return processDoneMsg{resp: resp, err: err}
+	}
+}
+
+// compactCmd runs compaction off the UI goroutine so the summarizing LLM call
+// cannot block the event loop. The outcome is reported by the agent's feedback
+// callbacks (compactedMsg / compactFailedMsg), so no message is emitted here.
+func (m model) compactCmd() tea.Cmd {
+	return func() tea.Msg {
+		m.agent.CompactContext(m.ctx)
+		return nil
+	}
+}
+
+func (m model) runMCPCommand(args string) (model, tea.Cmd) {
+	if m.cfg.MCP == nil {
+		return m.appendBlock(m.infoStyle.Width(m.width).Render("No MCP servers configured.")), nil
+	}
+
+	action, name, _ := strings.Cut(args, " ")
+	action = strings.TrimSpace(action)
+	name = strings.TrimSpace(name)
+
+	switch action {
+	case "":
+		statuses := m.cfg.MCP.GetMCPs()
+		if len(statuses) == 0 {
+			return m.appendBlock(m.infoStyle.Width(m.width).Render("No MCP servers registered.")), nil
+		}
+		lines := make([]string, 0, len(statuses)+1)
+		lines = append(lines, "MCP servers:")
+		for _, s := range statuses {
+			state := "off"
+			if s.Active {
+				state = "on"
+			}
+			lines = append(lines, fmt.Sprintf("  %s: %s", s.Name, state))
+		}
+		return m.appendBlock(m.infoStyle.Width(m.width).Render(strings.Join(lines, "\n"))), nil
+
+	case "on", "off":
+		target, ok := m.resolveMCPName(name)
+		if !ok {
+			return m.appendBlock(m.errorStyle.Width(m.width).Render("Specify an MCP name: /mcp " + action + " <name>")), nil
+		}
+		return m, m.mcpCmd(action, target)
+
+	default:
+		return m.appendBlock(m.errorStyle.Width(m.width).Render("Usage: /mcp [on|off] [name]")), nil
+	}
+}
+
+// resolveMCPName returns the given name, or the sole registered server's name
+// when name is empty and exactly one is registered.
+func (m model) resolveMCPName(name string) (string, bool) {
+	if name != "" {
+		return name, true
+	}
+	if statuses := m.cfg.MCP.GetMCPs(); len(statuses) == 1 {
+		return statuses[0].Name, true
+	}
+	return "", false
+}
+
+// mcpCmd starts or stops an MCP off the UI goroutine; launching a server spawns
+// a subprocess and performs a handshake, which must not block the event loop.
+func (m model) mcpCmd(action, name string) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		switch action {
+		case "on":
+			err = m.cfg.MCP.Start(m.ctx, name)
+		case "off":
+			err = m.cfg.MCP.Stop(name)
+		}
+		return mcpDoneMsg{action: action, name: name, err: err}
 	}
 }
 
@@ -400,11 +511,13 @@ func (m model) statusLine() string {
 
 	name := "—"
 	contextSize := 0
+	var provider llm.Provider
 	var effort llm.Effort
 	if info := m.agent.ModelInfo(m.ctx); info != nil {
 		if info.ModelName != "" {
 			name = info.ModelName
 		}
+		provider = info.Provider
 		contextSize = info.ModelContextSize
 		effort = info.Effort
 	}
@@ -412,6 +525,10 @@ func (m model) statusLine() string {
 	pct := 0.0
 	if contextSize > 0 {
 		pct = float64(m.lastMeta.TotalTokens) * 100 / float64(contextSize)
+	}
+
+	if provider != "" {
+		name = fmt.Sprintf("%s (%s)", name, provider)
 	}
 
 	parts := []string{name}

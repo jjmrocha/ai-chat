@@ -60,6 +60,8 @@ github.com/jjmrocha/ai-toolkit v0.1.1 h1:pdGmDAH6jkn8TXvxZY3FrZ36eCnhLzT1IfSn4Zr
 github.com/jjmrocha/ai-toolkit v0.1.1/go.mod h1:hoOw0p1Vrs7P+XtKoPfhhwBWju6dz4juEYIGir9CoYY=
 github.com/jjmrocha/ai-toolkit v0.1.2 h1:FV3BB5JouJEj7zNvQMselj+BVXsMdHYBWnBYk/D1BBA=
 github.com/jjmrocha/ai-toolkit v0.1.2/go.mod h1:hoOw0p1Vrs7P+XtKoPfhhwBWju6dz4juEYIGir9CoYY=
+github.com/jjmrocha/ai-toolkit v0.1.3 h1:cNDGz9nZoSCKBwSvBmvTJWxjd2pS/CT45PlPx1eMpRc=
+github.com/jjmrocha/ai-toolkit v0.1.3/go.mod h1:TA95K4yayWDj8Dc5EPRJLIqHa01Tv5o5J94CV5XwHc4=
 github.com/lucasb-eyer/go-colorful v1.4.0 h1:UtrWVfLdarDgc44HcS7pYloGHJUjHV/4FwW4TvVgFr4=
 github.com/lucasb-eyer/go-colorful v1.4.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-runewidth v0.0.23 h1:7ykA0T0jkPpzSvMS5i9uoNn2Xy3R383f9HDx3RybWcw=
