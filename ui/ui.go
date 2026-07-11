@@ -189,10 +189,10 @@ func (m model) View() tea.View {
 			status = m.spinner.View() + m.styles.footer.Render(" thinking…")
 		}
 		content = lipgloss.JoinVertical(lipgloss.Left,
-			m.titleBar(),
 			m.viewport.View(),
+			m.titleBar(),
 			m.input.View(),
-			m.styles.rule.Render(m.hrule()),
+			m.styles.headerName.Render(m.hrule()),
 			status,
 		)
 	}
@@ -209,13 +209,14 @@ func (m model) hrule() string { return strings.Repeat("─", m.width) }
 func (m model) titleBar() string {
 	name := m.core.Name()
 	if name == "" {
-		return m.styles.rule.Render(m.hrule())
+		return m.styles.headerName.Render(m.hrule())
 	}
 	label := " " + name + " "
-	side := max(0, m.width-lipgloss.Width(label))
-	left := m.styles.rule.Render(strings.Repeat("─", side/2))
-	right := m.styles.rule.Render(strings.Repeat("─", side-side/2))
-	return left + m.styles.headerName.Render(label) + right
+	left := 5
+	right := max(0, m.width-left-lipgloss.Width(label))
+	l := m.styles.headerName.Render(strings.Repeat("─", left))
+	r := m.styles.headerName.Render(strings.Repeat("─", right))
+	return l + m.styles.headerName.Render(label) + r
 }
 
 func (m model) refresh() model {
@@ -232,22 +233,12 @@ func (m model) refresh() model {
 	}
 
 	if len(m.rendered) == 0 {
-		m.viewport.SetContent(m.welcome())
+		m.viewport.SetContent("")
 	} else {
 		m.viewport.SetContent(strings.Join(m.rendered, "\n\n"))
 	}
 	m.viewport.GotoBottom()
 	return m
-}
-
-// welcome is the empty-state shown before the first message.
-func (m model) welcome() string {
-	name := m.core.Name()
-	if name == "" {
-		name = "Chat"
-	}
-	return "\n" + m.styles.headerName.Render(name) + "\n\n" +
-		m.styles.footer.Render("Send a message and press Enter · /help for commands · Ctrl+C to quit")
 }
 
 // renderBlock styles one transcript line by its Kind: replies as markdown, a
