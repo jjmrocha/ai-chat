@@ -32,13 +32,13 @@ type observer struct{ program *tea.Program }
 
 func (o *observer) TranscriptChanged() {
 	if o.program != nil {
-		o.program.Send(refreshMsg{})
+		go o.program.Send(refreshMsg{})
 	}
 }
 
 func (o *observer) Quit() {
 	if o.program != nil {
-		o.program.Send(quitMsg{})
+		go o.program.Send(quitMsg{})
 	}
 }
 
