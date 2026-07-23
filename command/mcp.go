@@ -19,7 +19,7 @@ func (c mcpCmd) Run(ctx Context, args string) {
 
 	switch action {
 	case "":
-		statuses := c.mgr.GetMCPs()
+		statuses := c.mgr.GetStatus()
 		if len(statuses) == 0 {
 			ctx.Print(Info, "No MCP servers registered.")
 			return
@@ -66,7 +66,7 @@ func (c mcpCmd) resolveName(name string) (string, bool) {
 	if name != "" {
 		return name, true
 	}
-	if statuses := c.mgr.GetMCPs(); len(statuses) == 1 {
+	if statuses := c.mgr.GetStatus(); len(statuses) == 1 {
 		return statuses[0].Name, true
 	}
 	return "", false

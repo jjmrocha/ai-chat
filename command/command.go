@@ -43,7 +43,7 @@ type AgentController interface {
 
 // MCPController is the slice of MCP-manager operations the mcp command drives.
 type MCPController interface {
-	GetMCPs() []mcp.Status
+	GetStatus() []mcp.Status
 	Start(ctx context.Context, name string) error
 	Stop(name string) error
 }

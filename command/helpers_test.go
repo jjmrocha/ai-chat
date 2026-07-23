@@ -96,7 +96,7 @@ type mockedMCPController struct {
 	stopFunc    func(name string) error
 }
 
-func (m *mockedMCPController) GetMCPs() []mcp.Status {
+func (m *mockedMCPController) GetStatus() []mcp.Status {
 	if m.getMCPsFunc == nil {
 		return nil
 	}

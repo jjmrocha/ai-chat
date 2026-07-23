@@ -42,7 +42,7 @@ func main() {
 	mcpMng := mcp.NewManager(toolBox)
 	defer mcpMng.Close()
 
-	mcpMng.RegisterClient(mcp.ClientConfig{
+	mcpMng.Register(mcp.ClientConfig{
 		Name:    "playwright",
 		Command: "npx",
 		Args:    []string{"@playwright/mcp@latest"},
