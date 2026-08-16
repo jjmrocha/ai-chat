@@ -3,7 +3,10 @@
 // turns it into styles, so the core never depends on a styling library.
 package theme
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Theme is a set of hex colors, one per styled element of the chat UI.
 type Theme struct {
@@ -18,7 +21,6 @@ type Theme struct {
 	Telemetry  string
 }
 
-// themes is the lookup of name → Theme used by ByName and Names.
 var themes = map[string]Theme{
 	"default":    Default,
 	"nord":       Nord,
@@ -38,5 +40,6 @@ func Names() []string {
 	for n := range themes {
 		out = append(out, n)
 	}
+	slices.Sort(out)
 	return out
 }

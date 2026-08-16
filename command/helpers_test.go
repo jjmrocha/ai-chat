@@ -91,16 +91,16 @@ func (m *mockedContext) ChangeTheme(name string) error {
 }
 
 type mockedMCPController struct {
-	getMCPsFunc func() []mcp.Status
-	startFunc   func(ctx context.Context, name string) error
-	stopFunc    func(name string) error
+	statusFunc func() []mcp.Status
+	startFunc  func(ctx context.Context, name string) error
+	stopFunc   func(name string) error
 }
 
-func (m *mockedMCPController) GetStatus() []mcp.Status {
-	if m.getMCPsFunc == nil {
+func (m *mockedMCPController) Status() []mcp.Status {
+	if m.statusFunc == nil {
 		return nil
 	}
-	return m.getMCPsFunc()
+	return m.statusFunc()
 }
 
 func (m *mockedMCPController) Start(ctx context.Context, name string) error {

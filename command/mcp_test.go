@@ -22,7 +22,7 @@ func TestMCPCommand(t *testing.T) {
 		// given
 		ctx := &mockedContext{}
 		cmd := MCP(&mockedMCPController{
-			getMCPsFunc: func() []mcp.Status { return nil },
+			statusFunc: func() []mcp.Status { return nil },
 		})
 
 		// when
@@ -38,7 +38,7 @@ func TestMCPCommand(t *testing.T) {
 		// given
 		ctx := &mockedContext{}
 		cmd := MCP(&mockedMCPController{
-			getMCPsFunc: func() []mcp.Status {
+			statusFunc: func() []mcp.Status {
 				return []mcp.Status{
 					{Name: "server-a", Active: true},
 					{Name: "server-b", Active: false},
@@ -102,7 +102,7 @@ func TestMCPCommand(t *testing.T) {
 		var started string
 		ctx := &mockedContext{}
 		cmd := MCP(&mockedMCPController{
-			getMCPsFunc: func() []mcp.Status {
+			statusFunc: func() []mcp.Status {
 				return []mcp.Status{{Name: "sole-server", Active: false}}
 			},
 			startFunc: func(_ context.Context, name string) error {
@@ -122,7 +122,7 @@ func TestMCPCommand(t *testing.T) {
 		// given
 		ctx := &mockedContext{}
 		cmd := MCP(&mockedMCPController{
-			getMCPsFunc: func() []mcp.Status { return nil },
+			statusFunc: func() []mcp.Status { return nil },
 		})
 
 		// when

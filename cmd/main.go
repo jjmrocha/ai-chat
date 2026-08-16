@@ -1,7 +1,7 @@
 // Command ai-chat launches the terminal chat UI backed by an ai-toolkit agent.
 //
 // It connects to OpenRouter, reading the API key from the OPEN_ROUTER_KEY
-// environment variable, and registers the Playwright MCP server with the agent's
+// environment variable, and registers the yfinance MCP server with the agent's
 // tool manager.
 //
 // Usage:
@@ -43,9 +43,9 @@ func main() {
 	defer mcpMng.Close()
 
 	mcpMng.Register(mcp.ClientConfig{
-		Name:    "playwright",
-		Command: "npx",
-		Args:    []string{"@playwright/mcp@latest"},
+		Name:    "yfinance-mcp",
+		Command: "uvx",
+		Args:    []string{"yfmcp@latest"},
 	})
 
 	ag, err := agent.New(agent.Config{}, client, toolBox)
@@ -57,13 +57,8 @@ func main() {
 	ag.StartSession("You are a helpful assistant. You can answer questions and provide information.")
 
 	core := chat.New("CHAT", ag,
+		chat.WithDefaultCommands(),
 		chat.WithMCP(mcpMng),
-		chat.WithModelCommand(),
-		chat.WithModelsCommand(),
-		chat.WithEffortCommand(),
-		chat.WithCompactCommand(),
-		chat.WithClearCommand(),
-		chat.WithThemeCommand(),
 	)
 	if err := ui.Run(context.Background(), core); err != nil {
 		log.Fatal(err)

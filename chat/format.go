@@ -26,8 +26,24 @@ type TelemetryFormatter func(agent.Metadata) string
 // The UI applies color.
 type StatusFormatter func(StatusInfo) string
 
-// defaultTelemetryFormatter reproduces the built-in per-turn telemetry line,
-// e.g. "[2 tool calls · 1.3s llm · 412 out tok]". Empty when nothing to report.
+// Status assembles the current status data from the agent and last turn.
+func (c *Chat) Status() StatusInfo {
+	meta := c.LastMetadata()
+	info := StatusInfo{Tokens: meta.TotalTokens}
+	if mi := c.agent.ModelInfo(c.ctx); mi != nil {
+		info.Name = mi.ModelName
+		info.Provider = mi.Provider
+		info.Effort = mi.Effort
+		if mi.ModelContextSize > 0 {
+			info.CtxPct = float64(meta.TotalTokens) * 100 / float64(mi.ModelContextSize)
+		}
+	}
+	return info
+}
+
+// StatusText renders the status bar as plain text via the status formatter.
+func (c *Chat) StatusText() string { return c.statusFmt(c.Status()) }
+
 func defaultTelemetryFormatter(meta agent.Metadata) string {
 	var parts []string
 	if meta.ToolCalls > 0 {
@@ -42,14 +58,21 @@ func defaultTelemetryFormatter(meta agent.Metadata) string {
 	if meta.OutputTokens > 0 {
 		parts = append(parts, fmt.Sprintf("%d out tok", meta.OutputTokens))
 	}
+	if truncated(meta.StopReason) {
+		parts = append(parts, "⚠ truncated")
+	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return "[" + strings.Join(parts, " · ") + "]"
 }
 
-// defaultStatusFormatter reproduces the built-in status bar, e.g.
-// "model (provider) · medium · ctx:12% · 8.40K tok".
+// truncated reports whether the provider stopped the reply at its output-token
+// limit: "max_tokens" is Anthropic's value, "length" OpenRouter's.
+func truncated(stopReason string) bool {
+	return stopReason == "max_tokens" || stopReason == "length"
+}
+
 func defaultStatusFormatter(info StatusInfo) string {
 	name := info.Name
 	if name == "" {

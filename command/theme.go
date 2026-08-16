@@ -1,7 +1,6 @@
 package command
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/jjmrocha/ai-chat/theme"
@@ -9,21 +8,18 @@ import (
 
 type themeCmd struct{}
 
+// Theme returns the /theme command: show the available themes or switch to one.
 func Theme() Command          { return themeCmd{} }
 func (themeCmd) Name() string { return "theme" }
 func (themeCmd) Help() string { return "/theme [name]    Show or switch theme" }
 
 func (themeCmd) Run(ctx Context, args string) {
 	if args == "" {
-		names := theme.Names()
-		sort.Strings(names)
-		ctx.Print(Info, "Theme: "+strings.Join(names, ", "))
+		ctx.Print(Info, "Theme: "+strings.Join(theme.Names(), ", "))
 		return
 	}
 	if err := ctx.ChangeTheme(args); err != nil {
-		names := theme.Names()
-		sort.Strings(names)
-		ctx.Print(Error, "Unknown theme, available: "+strings.Join(names, ", "))
+		ctx.Print(Error, "Unknown theme, available: "+strings.Join(theme.Names(), ", "))
 		return
 	}
 	ctx.Print(Info, "Theme: "+args)

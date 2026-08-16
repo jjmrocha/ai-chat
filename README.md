@@ -64,21 +64,14 @@ func main() {
 	defer ag.Close()
 	ag.StartSession("You are a helpful assistant.")
 
-	core := chat.New("CHAT", ag,
-		chat.WithModelCommand(),
-		chat.WithModelsCommand(),
-		chat.WithEffortCommand(),
-		chat.WithCompactCommand(),
-		chat.WithClearCommand(),
-		chat.WithThemeCommand(),
-	)
+	core := chat.New("CHAT", ag, chat.WithDefaultCommands())
 	if err := ui.Run(context.Background(), core); err != nil {
 		log.Fatal(err)
 	}
 }
 ```
 
-A fuller example wiring the Playwright MCP server lives in [`cmd/main.go`](cmd/main.go).
+A fuller example wiring an MCP server lives in [`cmd/main.go`](cmd/main.go).
 
 ## Architecture
 
@@ -158,6 +151,8 @@ for _, line := range core.Transcript() {
 
 ## Built-in commands
 
+`WithDefaultCommands()` registers every built-in that needs no external dependency (`/model`, `/models`, `/effort`, `/compact`, `/clear`, `/theme`). Each is also available as an individual option:
+
 | Constructor | Command | Effect |
 |---|---|---|
 | `WithModelCommand()` | `/model <name>` | Switch active model |
@@ -176,7 +171,7 @@ for _, line := range core.Transcript() {
 | `command` | Slash-command framework and the built-in commands. |
 | `theme` | Color palettes and lookup helpers. |
 | `ui` | Bubble Tea TUI renderer (`ui.Run`). |
-| `cmd` | Reference entry point wiring OpenRouter + Playwright MCP. |
+| `cmd` | Reference entry point wiring OpenRouter + an MCP server. |
 
 Full type and method reference: **[pkg.go.dev/github.com/jjmrocha/ai-chat](https://pkg.go.dev/github.com/jjmrocha/ai-chat)**.
 

@@ -7,7 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.7
 	charm.land/glamour/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.4
-	github.com/jjmrocha/ai-toolkit v0.1.4
+	github.com/jjmrocha/ai-toolkit v0.1.5
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -28,6 +28,7 @@ require (
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
+	github.com/jjmrocha/go-algo v0.1.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect

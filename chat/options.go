@@ -44,6 +44,24 @@ func WithMCP(mgr command.MCPController) Option {
 	return WithCommand(command.MCP(mgr))
 }
 
+// WithDefaultCommands registers every built-in command that needs no external
+// dependency: /model, /models, /effort, /compact, /clear and /theme. /mcp
+// needs a manager; register it separately with WithMCP.
+func WithDefaultCommands() Option {
+	return func(c *Chat) {
+		for _, cmd := range []command.Command{
+			command.Model(),
+			command.Models(),
+			command.Effort(),
+			command.Compact(),
+			command.Clear(),
+			command.Theme(),
+		} {
+			c.register(cmd)
+		}
+	}
+}
+
 // WithTelemetryFormatter overrides the per-turn telemetry line formatter.
 func WithTelemetryFormatter(f TelemetryFormatter) Option {
 	return func(c *Chat) { c.telemetryFmt = f }

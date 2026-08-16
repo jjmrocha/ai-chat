@@ -26,8 +26,6 @@ type (
 	quitMsg    struct{}
 )
 
-// observer bridges core notifications into the Bubble Tea event loop. These two
-// signals — re-render and quit — are the only inbound channel from the core.
 type observer struct{ program *tea.Program }
 
 func (o *observer) TranscriptChanged() {
@@ -42,8 +40,6 @@ func (o *observer) Quit() {
 	}
 }
 
-// styles holds the lipgloss styles derived from a theme. The core stores the
-// theme as data; only the UI turns it into styles.
 type styles struct {
 	headerName lipgloss.Style
 	user       lipgloss.Style
@@ -73,8 +69,6 @@ func newStyles(t theme.Theme) styles {
 	}
 }
 
-// chatCore is the slice of *chat.Chat the UI observes and renders. Kept as an
-// interface so the view can be rendered in tests without a live agent.
 type chatCore interface {
 	Name() string
 	Theme() theme.Theme
@@ -100,8 +94,6 @@ type model struct {
 	rendered      []string
 	renderedWidth int
 
-	// lastTheme is the theme used to build styles; when it diverges from
-	// core.Theme() the styles and rendered cache are rebuilt.
 	lastTheme theme.Theme
 }
 
@@ -210,7 +202,6 @@ func (m model) View() tea.View {
 
 func (m model) hrule() string { return strings.Repeat("─", m.width) }
 
-// titleBar renders the chat name inset in a horizontal rule at the top.
 func (m model) titleBar() string {
 	name := m.core.Name()
 	if name == "" {
@@ -225,7 +216,6 @@ func (m model) titleBar() string {
 }
 
 func (m model) refresh() model {
-	// Rebuild styles when the core's theme changes.
 	t := m.core.Theme()
 	if m.lastTheme != t {
 		m.styles = newStyles(t)
@@ -239,8 +229,6 @@ func (m model) refresh() model {
 
 	lines := m.core.Transcript()
 
-	// Rebuild the cache from scratch on a width change or a shrink (e.g. /clear);
-	// otherwise render only the newly-appended lines.
 	if m.renderedWidth != m.width || len(lines) < len(m.rendered) {
 		m.rendered = m.rendered[:0]
 		m.renderedWidth = m.width
@@ -258,8 +246,6 @@ func (m model) refresh() model {
 	return m
 }
 
-// renderBlock styles one transcript line by its Kind: replies as markdown, a
-// telemetry line under a turn separator, everything else as a themed line.
 func (m model) renderBlock(ln chat.Line) string {
 	s := m.styles
 	switch ln.Kind {

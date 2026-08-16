@@ -483,6 +483,20 @@ func TestChatFeedback(t *testing.T) {
 		}
 	})
 
+	t.Run("ModelInfoUnavailable appends error", func(t *testing.T) {
+		// given
+		c := newChat("test")
+
+		// when
+		c.ModelInfoUnavailable()
+
+		// then
+		transcript := c.Transcript()
+		if assert.Len(t, transcript, 1) {
+			assert.Equal(t, command.Error, transcript[0].Kind)
+		}
+	})
+
 	t.Run("SessionReset no-op", func(t *testing.T) {
 		// given
 		c := newChat("test")
@@ -678,13 +692,11 @@ func TestChatConcurrentTranscript(t *testing.T) {
 
 	// when
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			c.Print(command.Info, "line")
 			_ = c.Transcript()
 			_ = c.Busy()
-		}()
+		})
 	}
 	wg.Wait()
 

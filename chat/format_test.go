@@ -87,6 +87,40 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		// then
 		assert.Equal(t, "[100 out tok]", result)
 	})
+
+	t.Run("truncated reply flagged", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			stopReason string
+		}{
+			{name: "anthropic max_tokens", stopReason: "max_tokens"},
+			{name: "openrouter length", stopReason: "length"},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				// given
+				meta := agent.Metadata{OutputTokens: 100, StopReason: tc.stopReason}
+
+				// when
+				result := defaultTelemetryFormatter(meta)
+
+				// then
+				assert.Contains(t, result, "truncated")
+			})
+		}
+	})
+
+	t.Run("normal stop reason not flagged", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{OutputTokens: 100, StopReason: "end_turn"}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, "[100 out tok]", result)
+	})
 }
 
 func TestDefaultStatusFormatter(t *testing.T) {
