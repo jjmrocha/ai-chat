@@ -17,10 +17,10 @@ func TestFormatTokens(t *testing.T) {
 	}{
 		{name: "zero", input: 0, expected: "0"},
 		{name: "under 1K", input: 500, expected: "500"},
-		{name: "exactly 1K", input: 1000, expected: "1.00K"},
+		{name: "exactly 1K", input: 1000, expected: "1K"},
 		{name: "1.5K", input: 1500, expected: "1.50K"},
 		{name: "9.99K", input: 9990, expected: "9.99K"},
-		{name: "exactly 1M", input: 1000000, expected: "1.00M"},
+		{name: "exactly 1M", input: 1000000, expected: "1M"},
 		{name: "2.5M", input: 2500000, expected: "2.50M"},
 	}
 

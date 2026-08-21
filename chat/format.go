@@ -30,7 +30,7 @@ type StatusFormatter func(StatusInfo) string
 func (c *Chat) Status() StatusInfo {
 	meta := c.LastMetadata()
 	info := StatusInfo{Tokens: meta.TotalTokens}
-	if mi := c.agent.ModelInfo(c.ctx); mi != nil {
+	if mi := c.agent.ModelInfo(c.baseCtx); mi != nil {
 		info.Name = mi.ModelName
 		info.Provider = mi.Provider
 		info.Effort = mi.Effort
@@ -93,9 +93,17 @@ func defaultStatusFormatter(info StatusInfo) string {
 func formatTokens(tokens int) string {
 	switch {
 	case tokens >= 1_000_000:
-		return fmt.Sprintf("%.2fM", float64(tokens)/1_000_000)
+		v := float64(tokens) / 1_000_000
+		if v == float64(int(v)) {
+			return fmt.Sprintf("%dM", tokens/1_000_000)
+		}
+		return fmt.Sprintf("%.2fM", v)
 	case tokens >= 1_000:
-		return fmt.Sprintf("%.2fK", float64(tokens)/1_000)
+		v := float64(tokens) / 1_000
+		if v == float64(int(v)) {
+			return fmt.Sprintf("%dK", tokens/1_000)
+		}
+		return fmt.Sprintf("%.2fK", v)
 	default:
 		return strconv.Itoa(tokens)
 	}

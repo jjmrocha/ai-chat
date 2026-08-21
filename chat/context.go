@@ -57,8 +57,8 @@ func (c *Chat) ChangeEffort(e llm.Effort) { c.agent.ChangeEffort(e) }
 func (c *Chat) AvailableModels() []string { return c.agent.AvailableModels() }
 
 // ModelInfo implements command.AgentController.
-func (c *Chat) ModelInfo() *agent.ModelInfo { return c.agent.ModelInfo(c.ctx) }
+func (c *Chat) ModelInfo() *agent.ModelInfo { return c.agent.ModelInfo(c.baseCtx) }
 
 // Compact implements command.AgentController: run context compaction. The
 // outcome arrives through the agent's feedback events.
-func (c *Chat) Compact() { c.agent.CompactContext(c.ctx) }
+func (c *Chat) Compact() { c.agent.CompactContext(c.baseCtx) }

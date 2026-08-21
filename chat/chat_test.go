@@ -600,6 +600,20 @@ func TestChatHelpText(t *testing.T) {
 	assert.NotEmpty(t, help)
 }
 
+func TestChatSetContext(t *testing.T) {
+	// given
+	c := newChat("test")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// when
+	c.SetContext(ctx)
+
+	// then - the cancelled context should propagate to agent calls
+	// (no crash on SetContext itself)
+	assert.Equal(t, ctx, c.baseCtx)
+}
+
 func TestChatProcess(t *testing.T) {
 	t.Run("agent success appends reply and telemetry", func(t *testing.T) {
 		// given
@@ -618,7 +632,7 @@ func TestChatProcess(t *testing.T) {
 		}))
 
 		// when
-		c.process(c.ctx, "hello")
+		c.process(c.baseCtx, "hello")
 
 		// then
 		transcript := c.Transcript()
@@ -636,7 +650,7 @@ func TestChatProcess(t *testing.T) {
 		})
 
 		// when
-		c.process(c.ctx, "hello")
+		c.process(c.baseCtx, "hello")
 
 		// then
 		transcript := c.Transcript()
@@ -681,6 +695,24 @@ func TestChatProcess(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Error("expected agent.Process to be called")
 		}
+	})
+
+	t.Run("nil response appends error", func(t *testing.T) {
+		// given
+		c := newTestChat(t, &mockedAgentBackend{
+			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
+				return nil, nil
+			},
+		})
+
+		// when
+		c.process(c.baseCtx, "hello")
+
+		// then
+		transcript := c.Transcript()
+		require.Len(t, transcript, 2)
+		assert.Equal(t, command.Error, transcript[1].Kind)
+		assert.Equal(t, "No response received.", transcript[1].Text)
 	})
 }
 

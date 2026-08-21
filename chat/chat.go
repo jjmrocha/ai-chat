@@ -48,9 +48,9 @@ type agentBackend interface {
 // Chat owns the transcript and mediates between the agent and the UI. All state
 // is guarded by mu; observer notifications fire outside the lock.
 type Chat struct {
-	name  string
-	agent agentBackend
-	ctx   context.Context
+	name    string
+	agent   agentBackend
+	baseCtx context.Context
 
 	commands     map[string]command.Command
 	telemetryFmt TelemetryFormatter
@@ -76,7 +76,7 @@ func New(name string, ag *agent.Agent, opts ...Option) *Chat {
 func newChat(name string, opts ...Option) *Chat {
 	c := &Chat{
 		name:         name,
-		ctx:          context.Background(),
+		baseCtx:      context.Background(),
 		theme:        theme.Default,
 		commands:     map[string]command.Command{},
 		telemetryFmt: defaultTelemetryFormatter,
@@ -87,6 +87,10 @@ func newChat(name string, opts ...Option) *Chat {
 	}
 	return c
 }
+
+// SetContext replaces the context used for agent calls. Must be called before
+// the first Submit. Not safe for concurrent use.
+func (c *Chat) SetContext(ctx context.Context) { c.baseCtx = ctx }
 
 func (c *Chat) register(cmd command.Command) {
 	c.commands[cmd.Name()] = cmd
@@ -148,7 +152,7 @@ func (c *Chat) Submit(text string) {
 	c.mu.Lock()
 	c.busy = true
 	c.mu.Unlock()
-	go c.process(c.ctx, text)
+	go c.process(c.baseCtx, text)
 }
 
 func (c *Chat) dispatch(input string) {
@@ -221,7 +225,7 @@ func (c *Chat) process(ctx context.Context, text string) {
 			c.append(command.Telemetry, line)
 		}
 	default:
-		c.notify()
+		c.append(command.Error, "No response received.")
 	}
 }
 

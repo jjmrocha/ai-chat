@@ -10,6 +10,8 @@ help:
 	@echo "  lint         Run golangci-lint"
 	@echo "  deps         Update dependencies"
 	@echo "  tidy         Tidy go.mod"
+	@echo ""
+	@echo "CI runs on GitHub Actions (.github/workflows/test.yml)."
 
 test:
 	go test ./...

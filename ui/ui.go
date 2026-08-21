@@ -279,6 +279,7 @@ func (m model) renderMarkdown(s string) string {
 
 // Run renders core in a Bubble Tea program until the user quits or ctx is done.
 func Run(ctx context.Context, core *chat.Chat) error {
+	core.SetContext(ctx)
 	p := tea.NewProgram(newModel(core), tea.WithContext(ctx))
 	core.SetObserver(&observer{program: p})
 	_, err := p.Run()

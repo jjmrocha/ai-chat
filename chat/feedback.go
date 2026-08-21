@@ -23,11 +23,6 @@ func (c *Chat) ModelInfoUnavailable() {
 	c.append(command.Error, "Model info unavailable; automatic context compaction is disabled.")
 }
 
-// SessionReset implements agent.Feedback.
-func (c *Chat) SessionReset() {}
-
-// SessionStarted implements agent.Feedback.
+func (c *Chat) SessionReset()   {}
 func (c *Chat) SessionStarted() {}
-
-// SessionClosed implements agent.Feedback.
-func (c *Chat) SessionClosed() {}
+func (c *Chat) SessionClosed()  {}
