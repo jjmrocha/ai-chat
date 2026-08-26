@@ -42,7 +42,6 @@ import (
 	"github.com/jjmrocha/ai-chat/ui"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
-	"github.com/jjmrocha/ai-toolkit/tools"
 )
 
 func main() {
@@ -57,12 +56,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ag, err := agent.New(agent.Config{}, client, tools.NewToolBox())
+	ag, err := agent.New(agent.Config{}, client)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ag.Close()
-	ag.StartSession("You are a helpful assistant.")
+	ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
 
 	core := chat.New("CHAT", ag, chat.WithDefaultCommands())
 	if err := ui.Run(context.Background(), core); err != nil {
@@ -121,7 +120,12 @@ mcpMng.Register(mcp.ClientConfig{
 	Args:    []string{"@playwright/mcp@latest"},
 })
 
-ag, _ := agent.New(agent.Config{}, client, toolBox)
+ag, _ := agent.New(agent.Config{}, client)
+ag.StartSession(agent.SessionConfig{
+	Prompt:  "You are a helpful assistant.",
+	ToolBox: toolBox,
+})
+
 core := chat.New("CHAT", ag, chat.WithMCP(mcpMng))
 ```
 

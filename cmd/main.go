@@ -48,13 +48,16 @@ func main() {
 		Args:    []string{"yfmcp@latest"},
 	})
 
-	ag, err := agent.New(agent.Config{}, client, toolBox)
+	ag, err := agent.New(agent.Config{}, client)
 	if err != nil {
 		panic(err)
 	}
 
 	defer ag.Close()
-	ag.StartSession("You are a helpful assistant. You can answer questions and provide information.")
+	ag.StartSession(agent.SessionConfig{
+		Prompt:  "You are a helpful assistant. You can answer questions and provide information.",
+		ToolBox: toolBox,
+	})
 
 	core := chat.New("CHAT", ag,
 		chat.WithDefaultCommands(),
