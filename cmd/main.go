@@ -20,6 +20,7 @@ import (
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/jjmrocha/ai-toolkit/mcp"
+	"github.com/jjmrocha/ai-toolkit/skills"
 	"github.com/jjmrocha/ai-toolkit/tools"
 )
 
@@ -48,6 +49,8 @@ func main() {
 		Args:    []string{"yfmcp@latest"},
 	})
 
+	skillColl := skills.NewCollection()
+
 	ag, err := agent.New(agent.Config{}, client)
 	if err != nil {
 		panic(err)
@@ -57,11 +60,13 @@ func main() {
 	ag.StartSession(agent.SessionConfig{
 		Prompt:  "You are a helpful assistant. You can answer questions and provide information.",
 		ToolBox: toolBox,
+		Skills:  skillColl,
 	})
 
 	core := chat.New("CHAT", ag,
 		chat.WithDefaultCommands(),
 		chat.WithMCP(mcpMng),
+		chat.WithSkills(skillColl),
 	)
 	if err := ui.Run(context.Background(), core); err != nil {
 		log.Fatal(err)

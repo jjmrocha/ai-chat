@@ -44,9 +44,16 @@ func WithMCP(mgr command.MCPController) Option {
 	return WithCommand(command.MCP(mgr))
 }
 
+// WithSkills registers /skills bound to coll, so the coupling between the
+// command and its collection lives in a single option.
+func WithSkills(coll command.SkillsController) Option {
+	return WithCommand(command.Skills(coll))
+}
+
 // WithDefaultCommands registers every built-in command that needs no external
 // dependency: /model, /models, /effort, /compact, /clear and /theme. /mcp
-// needs a manager; register it separately with WithMCP.
+// needs a manager and /skills a collection; register those separately with
+// WithMCP and WithSkills.
 func WithDefaultCommands() Option {
 	return func(c *Chat) {
 		for _, cmd := range []command.Command{

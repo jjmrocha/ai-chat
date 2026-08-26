@@ -48,6 +48,12 @@ type MCPController interface {
 	Stop(name string) error
 }
 
+// SkillsController is the slice of skill-collection operations the skills
+// command drives.
+type SkillsController interface {
+	Skills() []string
+}
+
 // Context is the capability surface the core hands to a Command.
 type Context interface {
 	// Agent exposes the agent operations a command may drive.

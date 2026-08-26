@@ -116,3 +116,14 @@ func (m *mockedMCPController) Stop(name string) error {
 	}
 	return m.stopFunc(name)
 }
+
+type mockedSkillsController struct {
+	skillsFunc func() []string
+}
+
+func (m *mockedSkillsController) Skills() []string {
+	if m.skillsFunc == nil {
+		return nil
+	}
+	return m.skillsFunc()
+}

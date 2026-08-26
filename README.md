@@ -9,7 +9,7 @@ Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmro
 ## Why ai-chat
 
 - **Headless core, not a monolith.** `chat.Chat` runs the transcript and drives the agent with no terminal attached — drive it from a test, a different UI, or the bundled TUI.
-- **Slash commands are pluggable.** Ship the built-ins (`/model`, `/effort`, `/mcp`, `/theme`, …) or implement `command.Command` and register your own. No forking required.
+- **Slash commands are pluggable.** Ship the built-ins (`/model`, `/effort`, `/mcp`, `/skills`, `/theme`, …) or implement `command.Command` and register your own. No forking required.
 - **Swappable renderer.** The `ui` package is one consumer of the core, wired through a single `Observer` interface. Replace it without touching your agent logic.
 - **MCP built in.** Register MCP servers and toggle them at runtime with `/mcp`.
 
@@ -133,6 +133,35 @@ Users then toggle servers at runtime: `/mcp on playwright`, `/mcp off playwright
 
 > **Security:** `ClientConfig.Command` and `Args` are executed with `os/exec` **without a shell**, so they are trusted input. Populate them from operator configuration, never from untrusted user input.
 
+### Register skills
+
+A skill is a folder holding a `SKILL.md`. Only the name and description reach the
+model up front, as a catalog appended to the system prompt; the body loads on
+demand when the model calls `skill_load`.
+
+```go
+skillColl := skills.NewCollection()
+if err := skillColl.Add("./skills/stock-research"); err != nil {
+	log.Fatal(err)
+}
+
+ag, _ := agent.New(agent.Config{}, client)
+ag.StartSession(agent.SessionConfig{
+	Prompt:  "You are a helpful assistant.",
+	ToolBox: toolBox,
+	Skills:  skillColl,
+})
+
+core := chat.New("CHAT", ag, chat.WithSkills(skillColl))
+```
+
+`/skills` lists what is registered. Nothing is discovered automatically — a skill
+reaches the model only because `Add` put it there.
+
+> **Security:** a skill folder is trusted input, like an MCP server command. The
+> `skill_execute_file` tool runs files the folder ships with the authority and
+> environment of the chat process.
+
 ### Add a theme
 
 ```go
@@ -166,6 +195,7 @@ for _, line := range core.Transcript() {
 | `WithCompactCommand()` | `/compact` | Force context compaction |
 | `WithThemeCommand()` | `/theme [name]` | Show or switch theme |
 | `WithMCP(mgr)` | `/mcp [on\|off] [name]` | Show or toggle MCP servers |
+| `WithSkills(coll)` | `/skills` | List available skills |
 
 ## Packages
 
