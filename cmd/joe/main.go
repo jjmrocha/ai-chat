@@ -75,7 +75,7 @@ func run() error {
 
 	defer func() { _ = codePack.Close() }()
 
-	if err := toolBox.Add(repoNameTool, repoName); err != nil {
+	if err := toolBox.Add(repoInfoTool, repoInfo); err != nil {
 		return err
 	}
 

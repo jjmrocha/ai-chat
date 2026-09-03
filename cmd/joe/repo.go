@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,25 +12,37 @@ import (
 	"github.com/jjmrocha/ai-toolkit/tools"
 )
 
-var repoNameTool = llm.Tool{
-	Name: "repo_name",
-	Description: "Returns the name of the repository the agent is working on: " +
-		"the name of the git repository's root directory, or the name of the " +
-		"current directory when it is not inside a git repository.",
+var repoInfoTool = llm.Tool{
+	Name: "repo_info",
+	Description: "Returns the repository the agent is working on as JSON with " +
+		"a name and an absolute path: the git repository's root directory, or " +
+		"the current directory when it is not inside a git repository.",
 	Schema: tools.NewObjectBuilder().Build(),
 }
 
-func repoName(ctx context.Context, _ map[string]any) (string, error) {
-	if root, err := gitRoot(ctx); err == nil {
-		return filepath.Base(root), nil
+func repoInfo(ctx context.Context, _ map[string]any) (string, error) {
+	root, err := gitRoot(ctx)
+	if err != nil {
+		root, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
 	}
 
-	cwd, err := os.Getwd()
+	info := struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}{
+		Name: filepath.Base(root),
+		Path: root,
+	}
+
+	out, err := json.Marshal(info)
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Base(cwd), nil
+	return string(out), nil
 }
 
 func gitRoot(ctx context.Context) (string, error) {

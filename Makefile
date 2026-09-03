@@ -1,4 +1,4 @@
-.PHONY: help build test lint tidy
+.PHONY: help build clean test bench lint deps tidy
 .DEFAULT_GOAL := help
 
 help:
@@ -6,6 +6,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  build        Build every agent in cmd/ into ./bin"
+	@echo "  clean        Remove the build output in ./bin"
 	@echo "  test         Run all tests"
 	@echo "  bench        Run benchmarks"
 	@echo "  lint         Run golangci-lint"
@@ -16,6 +17,9 @@ help:
 
 build:
 	go build -o bin/ ./cmd/...
+
+clean:
+	rm -rf bin
 
 test:
 	go test ./...
