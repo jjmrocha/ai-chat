@@ -75,6 +75,10 @@ func run() error {
 
 	defer func() { _ = codePack.Close() }()
 
+	if err := toolBox.Add(repoNameTool, repoName); err != nil {
+		return err
+	}
+
 	ag, err := agent.New(agent.Config{}, client)
 	if err != nil {
 		return err
