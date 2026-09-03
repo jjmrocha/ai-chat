@@ -13,11 +13,9 @@ func (effortCmd) Run(ctx Context, args string) {
 		ctx.Print(Info, "Usage: /effort off|low|medium|max")
 		return
 	}
-	switch llm.Effort(args) {
-	case llm.EffortOff, llm.EffortLow, llm.EffortMedium, llm.EffortMax:
-		ctx.Agent().ChangeEffort(llm.Effort(args))
-		ctx.Print(Info, "Effort: "+args)
-	default:
+	if err := ctx.Agent().ChangeEffort(llm.Effort(args)); err != nil {
 		ctx.Print(Error, "Effort must be: off, low, medium, max")
+		return
 	}
+	ctx.Print(Info, "Effort: "+args)
 }

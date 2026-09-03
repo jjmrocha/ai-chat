@@ -10,7 +10,7 @@ import (
 
 type mockedAgentController struct {
 	changeModelFunc     func(name string) error
-	changeEffortFunc    func(e llm.Effort)
+	changeEffortFunc    func(e llm.Effort) error
 	availableModelsFunc func() []string
 	modelInfoFunc       func() *agent.ModelInfo
 	compactFunc         func()
@@ -23,10 +23,11 @@ func (m *mockedAgentController) ChangeModel(name string) error {
 	return m.changeModelFunc(name)
 }
 
-func (m *mockedAgentController) ChangeEffort(e llm.Effort) {
-	if m.changeEffortFunc != nil {
-		m.changeEffortFunc(e)
+func (m *mockedAgentController) ChangeEffort(e llm.Effort) error {
+	if m.changeEffortFunc == nil {
+		return nil
 	}
+	return m.changeEffortFunc(e)
 }
 
 func (m *mockedAgentController) AvailableModels() []string {

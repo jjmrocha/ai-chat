@@ -38,7 +38,7 @@ type Observer interface {
 type agentBackend interface {
 	Process(ctx context.Context, input string) (*agent.Response, error)
 	ChangeModel(name string) error
-	ChangeEffort(e llm.Effort)
+	ChangeEffort(e llm.Effort) error
 	AvailableModels() []string
 	ModelInfo(ctx context.Context) *agent.ModelInfo
 	CompactContext(ctx context.Context)

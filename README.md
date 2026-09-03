@@ -70,7 +70,7 @@ func main() {
 }
 ```
 
-A fuller example wiring an MCP server lives in [`cmd/main.go`](cmd/main.go).
+Fuller examples live in [`cmd/`](cmd): [`ai-chat`](cmd/ai-chat/main.go) wires a local Ollama model with in-process shell and file packs plus an MCP server, while [`warren`](cmd/warren/main.go) and [`joe`](cmd/joe/main.go) build a financial analyst and a coding agent on OpenRouter.
 
 ## Architecture
 
@@ -205,7 +205,7 @@ for _, line := range core.Transcript() {
 | `command` | Slash-command framework and the built-in commands. |
 | `theme` | Color palettes and lookup helpers. |
 | `ui` | Bubble Tea TUI renderer (`ui.Run`). |
-| `cmd` | Reference entry point wiring OpenRouter + an MCP server. |
+| `cmd` | Three reference entry points: `ai-chat` (generic), `warren` (financial analyst), `joe` (coding agent). |
 
 Full type and method reference: **[pkg.go.dev/github.com/jjmrocha/ai-chat](https://pkg.go.dev/github.com/jjmrocha/ai-chat)**.
 

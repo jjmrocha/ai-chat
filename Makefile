@@ -1,10 +1,11 @@
-.PHONY: help test lint tidy
+.PHONY: help build test lint tidy
 .DEFAULT_GOAL := help
 
 help:
 	@echo "Usage: make <target> [ROOT=<dir>]"
 	@echo ""
 	@echo "Targets:"
+	@echo "  build        Build every agent in cmd/ into ./bin"
 	@echo "  test         Run all tests"
 	@echo "  bench        Run benchmarks"
 	@echo "  lint         Run golangci-lint"
@@ -12,6 +13,9 @@ help:
 	@echo "  tidy         Tidy go.mod"
 	@echo ""
 	@echo "CI runs on GitHub Actions (.github/workflows/test.yml)."
+
+build:
+	go build -o bin/ ./cmd/...
 
 test:
 	go test ./...

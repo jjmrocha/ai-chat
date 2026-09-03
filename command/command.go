@@ -35,7 +35,7 @@ const (
 // implements it, supplying the request context so commands stay context-free.
 type AgentController interface {
 	ChangeModel(name string) error
-	ChangeEffort(e llm.Effort)
+	ChangeEffort(e llm.Effort) error
 	AvailableModels() []string
 	ModelInfo() *agent.ModelInfo
 	Compact()

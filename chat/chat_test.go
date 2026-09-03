@@ -18,7 +18,7 @@ import (
 type mockedAgentBackend struct {
 	processFunc         func(ctx context.Context, input string) (*agent.Response, error)
 	changeModelFunc     func(name string) error
-	changeEffortFunc    func(e llm.Effort)
+	changeEffortFunc    func(e llm.Effort) error
 	availableModelsFunc func() []string
 	modelInfoFunc       func(ctx context.Context) *agent.ModelInfo
 	compactContextFunc  func(ctx context.Context)
@@ -39,10 +39,11 @@ func (m *mockedAgentBackend) ChangeModel(name string) error {
 	return m.changeModelFunc(name)
 }
 
-func (m *mockedAgentBackend) ChangeEffort(e llm.Effort) {
-	if m.changeEffortFunc != nil {
-		m.changeEffortFunc(e)
+func (m *mockedAgentBackend) ChangeEffort(e llm.Effort) error {
+	if m.changeEffortFunc == nil {
+		return nil
 	}
+	return m.changeEffortFunc(e)
 }
 
 func (m *mockedAgentBackend) AvailableModels() []string {
@@ -394,19 +395,38 @@ func TestChatChangeModel(t *testing.T) {
 }
 
 func TestChatChangeEffort(t *testing.T) {
-	// given
-	var changed llm.Effort
-	c := newTestChat(t, &mockedAgentBackend{
-		changeEffortFunc: func(e llm.Effort) {
-			changed = e
-		},
+	t.Run("forwards the level and reports success", func(t *testing.T) {
+		// given
+		var changed llm.Effort
+		c := newTestChat(t, &mockedAgentBackend{
+			changeEffortFunc: func(e llm.Effort) error {
+				changed = e
+				return nil
+			},
+		})
+
+		// when
+		err := c.ChangeEffort(llm.EffortMax)
+
+		// then
+		assert.NoError(t, err)
+		assert.Equal(t, llm.EffortMax, changed)
 	})
 
-	// when
-	c.ChangeEffort(llm.EffortMax)
+	t.Run("propagates the agent error", func(t *testing.T) {
+		// given
+		c := newTestChat(t, &mockedAgentBackend{
+			changeEffortFunc: func(llm.Effort) error {
+				return llm.ErrInvalidEffort
+			},
+		})
 
-	// then
-	assert.Equal(t, llm.EffortMax, changed)
+		// when
+		err := c.ChangeEffort("extreme")
+
+		// then
+		assert.ErrorIs(t, err, llm.ErrInvalidEffort)
+	})
 }
 
 func TestChatAvailableModels(t *testing.T) {

@@ -51,7 +51,7 @@ func (c *Chat) ChangeTheme(name string) error {
 func (c *Chat) ChangeModel(name string) error { return c.agent.ChangeModel(name) }
 
 // ChangeEffort implements command.AgentController.
-func (c *Chat) ChangeEffort(e llm.Effort) { c.agent.ChangeEffort(e) }
+func (c *Chat) ChangeEffort(e llm.Effort) error { return c.agent.ChangeEffort(e) }
 
 // AvailableModels implements command.AgentController.
 func (c *Chat) AvailableModels() []string { return c.agent.AvailableModels() }
