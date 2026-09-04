@@ -17,7 +17,6 @@ import (
 	"os"
 
 	"github.com/jjmrocha/ai-chat/chat"
-	"github.com/jjmrocha/ai-chat/cmd/internal"
 	"github.com/jjmrocha/ai-chat/ui"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
@@ -50,12 +49,13 @@ func run() error {
 
 	skillColl := skills.NewCollection()
 
-	err = cmdutil.AddSkills(skillColl,
+	for _, name := range []string{
 		"buffett-valuation",
 		"company-research",
-	)
-	if err != nil {
-		return err
+	} {
+		if err := skillColl.AddClaudeSkill(name); err != nil {
+			return err
+		}
 	}
 
 	toolBox := tools.NewToolBox()

@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -461,17 +462,18 @@ func TestChatCompact(t *testing.T) {
 }
 
 func TestChatFeedback(t *testing.T) {
-	t.Run("ToolCalled appends activity", func(t *testing.T) {
+	t.Run("ToolCalled appends activity with the call rendered", func(t *testing.T) {
 		// given
 		c := newChat("test")
 
 		// when
-		c.ToolCalled("fetch")
+		c.ToolCalled("fetch", map[string]any{"url": "http://a", "depth": float64(2)})
 
 		// then
 		transcript := c.Transcript()
 		if assert.Len(t, transcript, 1) {
 			assert.Equal(t, command.Activity, transcript[0].Kind)
+			assert.Equal(t, `● fetch(depth=2, url="http://a")`, transcript[0].Text)
 		}
 	})
 
@@ -774,4 +776,91 @@ func TestChatStatusText(t *testing.T) {
 
 	// then
 	assert.NotEmpty(t, text)
+}
+
+func TestFormatToolCall(t *testing.T) {
+	long := strings.Repeat("x", maxToolArgLen+1)
+
+	testCases := []struct {
+		name     string
+		tool     string
+		args     map[string]any
+		expected string
+	}{
+		{
+			name:     "no arguments",
+			tool:     "repo_info",
+			args:     nil,
+			expected: "● repo_info()",
+		},
+		{
+			name:     "empty arguments",
+			tool:     "repo_info",
+			args:     map[string]any{},
+			expected: "● repo_info()",
+		},
+		{
+			name:     "quotes strings and prints numbers bare",
+			tool:     "lookup",
+			args:     map[string]any{"name": "", "age": float64(1)},
+			expected: `● lookup(age=1, name="")`,
+		},
+		{
+			name:     "sorts arguments by name",
+			tool:     "edit",
+			args:     map[string]any{"c": true, "a": float64(1), "b": "x"},
+			expected: `● edit(a=1, b="x", c=true)`,
+		},
+		{
+			name:     "prints a fractional number as written",
+			tool:     "sample",
+			args:     map[string]any{"ratio": 1.5},
+			expected: "● sample(ratio=1.5)",
+		},
+		{
+			name:     "elides a long string",
+			tool:     "file_write",
+			args:     map[string]any{"path": "notes.md", "content": long},
+			expected: `● file_write(content: ..., path="notes.md")`,
+		},
+		{
+			name:     "keeps a string at the limit",
+			tool:     "file_write",
+			args:     map[string]any{"content": strings.Repeat("x", maxToolArgLen)},
+			expected: `● file_write(content="` + strings.Repeat("x", maxToolArgLen) + `")`,
+		},
+		{
+			name:     "elides a nested object",
+			tool:     "edit",
+			args:     map[string]any{"path": "a.md", "spec": map[string]any{"k": "v"}},
+			expected: `● edit(path="a.md", spec: ...)`,
+		},
+		{
+			name:     "elides a list",
+			tool:     "batch",
+			args:     map[string]any{"items": []any{1, 2}, "dry": false},
+			expected: "● batch(dry=false, items: ...)",
+		},
+		{
+			name:     "prints a null argument",
+			tool:     "search",
+			args:     map[string]any{"filter": nil},
+			expected: "● search(filter=null)",
+		},
+		{
+			name:     "escapes a string with quotes and newlines",
+			tool:     "say",
+			args:     map[string]any{"text": "a\"b\nc"},
+			expected: `● say(text="a\"b\nc")`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// when
+			result := formatToolCall(tc.tool, tc.args)
+			// then
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }
