@@ -95,12 +95,23 @@ type model struct {
 	width    int
 	height   int
 	ready    bool
+	// mouseCapture routes wheel and drag events to the program. It stays off by
+	// default: capturing them takes plain-drag text selection away from the
+	// terminal, and copying matters more than scrolling by wheel.
+	mouseCapture bool
 
 	// rendered caches each transcript line's rendered form; lines are
 	// append-only and immutable, so each is rendered (and markdown-parsed) once.
 	// renderedWidth records the width they were rendered at.
 	rendered      []string
 	renderedWidth int
+
+	// history holds submitted prompts, oldest first. histIdx points at the one
+	// currently recalled; when it equals len(history) the user is editing their
+	// own text rather than browsing, and draft is empty.
+	history []string
+	histIdx int
+	draft   string
 
 	lastTheme theme.Theme
 }
@@ -125,6 +136,9 @@ func newModel(core chatCore) model {
 	tst.Focused.Prompt = sty.user
 	ti.SetStyles(tst)
 
+	vp := viewport.New()
+	vp.KeyMap = pagerKeyMap()
+
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(core.Theme().Info))
 
@@ -132,11 +146,23 @@ func newModel(core chatCore) model {
 		core:          core,
 		styles:        sty,
 		lastTheme:     core.Theme(),
-		viewport:      viewport.New(),
+		viewport:      vp,
 		input:         ti,
 		spinner:       sp,
 		renderer:      newRenderer(0),
 		renderedWidth: -1,
+	}
+}
+
+// pagerKeyMap keeps the transcript on paging keys only. The viewport sees every
+// key the input does, so the stock keymap's bare letters (f, b, j, k, u, d,
+// space) would scroll the transcript as the user types their message.
+func pagerKeyMap() viewport.KeyMap {
+	return viewport.KeyMap{
+		PageDown:     key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "page down")),
+		PageUp:       key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
+		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "½ page down")),
+		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "½ page up")),
 	}
 }
 
@@ -182,8 +208,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			text := m.input.Value()
 			m.input.Reset()
+			m.remember(text)
 			m.core.Submit(text)
+			m.layout()
 			return m, nil
+		case "f2":
+			m.mouseCapture = !m.mouseCapture
+			return m, nil
+		case "up":
+			if m.recallOlder() {
+				return m, nil
+			}
+		case "down":
+			if m.recallNewer() {
+				return m, nil
+			}
 		}
 	}
 
@@ -195,6 +234,55 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	m.layout()
 	return m, tea.Batch(cmds...)
+}
+
+// remember appends a submitted prompt to the history and ends any browsing.
+// Blank text and an immediate repeat of the newest entry are not recorded.
+func (m *model) remember(text string) {
+	m.draft = ""
+	if trimmed := strings.TrimSpace(text); trimmed != "" {
+		if len(m.history) == 0 || m.history[len(m.history)-1] != text {
+			m.history = append(m.history, text)
+		}
+	}
+	m.histIdx = len(m.history)
+}
+
+// recallOlder loads the previous prompt into the input, reporting whether it
+// consumed the key. It declines while the cursor still has draft lines above
+// it, so ↑ keeps moving the cursor inside a multi-line message.
+func (m *model) recallOlder() bool {
+	if m.input.Line() > 0 || m.histIdx == 0 {
+		return false
+	}
+	if m.histIdx == len(m.history) {
+		m.draft = m.input.Value()
+	}
+	m.histIdx--
+	m.setInput(m.history[m.histIdx])
+	return true
+}
+
+// recallNewer walks back toward the draft the user was typing, reporting
+// whether it consumed the key.
+func (m *model) recallNewer() bool {
+	if m.histIdx >= len(m.history) || m.input.Line() < m.input.LineCount()-1 {
+		return false
+	}
+	m.histIdx++
+	if m.histIdx == len(m.history) {
+		m.setInput(m.draft)
+		m.draft = ""
+		return true
+	}
+	m.setInput(m.history[m.histIdx])
+	return true
+}
+
+func (m *model) setInput(text string) {
+	m.input.SetValue(text)
+	m.input.CursorEnd()
+	m.layout()
 }
 
 // layout gives the viewport whatever height the grown input leaves behind.
@@ -220,7 +308,11 @@ func (m model) View() tea.View {
 
 	v := tea.NewView(content)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeNone
+	if m.mouseCapture {
+		v.MouseMode = tea.MouseModeCellMotion
+	} else {
+		v.MouseMode = tea.MouseModeNone
+	}
 	return v
 }
 
@@ -230,6 +322,9 @@ func (m model) titleBar() string {
 	name := m.core.Name()
 	if name == "" {
 		return m.styles.headerName.Render(m.hrule())
+	}
+	if m.mouseCapture {
+		name += " · mouse"
 	}
 	label := " " + name + " "
 	left := 5

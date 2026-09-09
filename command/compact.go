@@ -13,7 +13,7 @@ func (compactCmd) Name() string {
 }
 
 func (compactCmd) Help() string {
-	return "/compact        Force context compaction"
+	return "Force context compaction"
 }
 
 func (compactCmd) Run(ctx Context, _ string) {

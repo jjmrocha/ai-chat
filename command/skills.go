@@ -12,7 +12,7 @@ func (skillsCmd) Name() string {
 }
 
 func (skillsCmd) Help() string {
-	return "/skills         List available skills"
+	return "List available skills"
 }
 
 func (c skillsCmd) Run(ctx Context, args string) {

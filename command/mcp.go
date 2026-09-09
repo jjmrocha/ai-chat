@@ -18,7 +18,11 @@ func (mcpCmd) Name() string {
 }
 
 func (mcpCmd) Help() string {
-	return "/mcp [on|off] [name]  Show or toggle MCP servers"
+	return "Show or toggle MCP servers"
+}
+
+func (mcpCmd) Args() string {
+	return "[on|off] [name]"
 }
 
 func (c mcpCmd) Run(ctx Context, args string) {

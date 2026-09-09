@@ -97,13 +97,28 @@ Implement `command.Command` and register it with `chat.WithCommand`.
 type pingCmd struct{}
 
 func (pingCmd) Name() string { return "ping" }
-func (pingCmd) Help() string { return "/ping           Reply with pong" }
+func (pingCmd) Help() string { return "Reply with pong" }
 func (pingCmd) Run(ctx command.Context, args string) {
 	ctx.Print(command.Info, "pong "+args)
 }
 
 core := chat.New("CHAT", ag, chat.WithCommand(pingCmd{}))
 ```
+
+`Help()` returns the description only — no leading `/ping`, no padding. `/help` builds the
+left column from `Name()` and aligns every description to the widest entry, so a command
+cannot knock the column out of true.
+
+A command that takes arguments also implements `command.Argumented`, and the spec is
+appended after the name:
+
+```go
+func (pingCmd) Args() string { return "[message]" }   // renders as: /ping [message]  Reply with pong
+```
+
+`Argumented` is optional and detected by type assertion, so the method name and receiver
+have to match exactly — a `pingCmd` registered by value whose `Args()` is declared on
+`*pingCmd` compiles fine and silently renders as a bare `/ping`.
 
 `command.Context` gives a command access to the agent (`Agent()`), the transcript (`Print`), session reset (`Clear`), and theme switching (`ChangeTheme`).
 

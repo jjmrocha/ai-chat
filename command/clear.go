@@ -12,7 +12,7 @@ func (clearCmd) Name() string {
 }
 
 func (clearCmd) Help() string {
-	return "/clear          Reset conversation"
+	return "Reset conversation"
 }
 
 func (clearCmd) Run(ctx Context, _ string) {

@@ -133,6 +133,77 @@ func (m *mockCommand) Run(ctx command.Context, args string) {
 	}
 }
 
+// mockArgCommand is a mockCommand that also advertises an argument spec.
+type mockArgCommand struct {
+	mockCommand
+	args string
+}
+
+func (m *mockArgCommand) Args() string { return m.args }
+
+func TestHelpTextAlignment(t *testing.T) {
+	t.Run("descriptions line up past the widest usage", func(t *testing.T) {
+		// given
+		wide := &mockArgCommand{
+			mockCommand: mockCommand{
+				nameFunc: func() string { return "wide" },
+				helpFunc: func() string { return "Takes a long spec" },
+			},
+			args: "[on|off] [name]",
+		}
+		narrow := &mockCommand{
+			nameFunc: func() string { return "narrow" },
+			helpFunc: func() string { return "Takes nothing" },
+		}
+		c := newChat("test", WithCommand(wide), WithCommand(narrow))
+
+		// when
+		result := c.helpText()
+
+		// then
+		assert.Equal(t, strings.Join([]string{
+			"Commands:",
+			"  /narrow               Takes nothing",
+			"  /wide [on|off] [name] Takes a long spec",
+			"  /help                 Show this message",
+			"  /exit                 Quit",
+		}, "\n"), result)
+	})
+
+	t.Run("a command without args renders just its name", func(t *testing.T) {
+		// given
+		only := &mockCommand{
+			nameFunc: func() string { return "solo" },
+			helpFunc: func() string { return "Does a thing" },
+		}
+		c := newChat("test", WithCommand(only))
+
+		// when
+		result := c.helpText()
+
+		// then
+		assert.Contains(t, result, "  /solo Does a thing")
+	})
+
+	t.Run("an empty args spec adds no trailing space", func(t *testing.T) {
+		// given
+		blank := &mockArgCommand{
+			mockCommand: mockCommand{
+				nameFunc: func() string { return "blank" },
+				helpFunc: func() string { return "Does a thing" },
+			},
+			args: "",
+		}
+		c := newChat("test", WithCommand(blank))
+
+		// when
+		result := c.helpText()
+
+		// then
+		assert.Contains(t, result, "  /blank Does a thing")
+	})
+}
+
 func TestChatName(t *testing.T) {
 	// given
 	c := newChat("test-chat")

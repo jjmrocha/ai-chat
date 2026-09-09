@@ -19,7 +19,11 @@ func (effortCmd) Name() string {
 }
 
 func (effortCmd) Help() string {
-	return "/effort [level] Show or switch reasoning effort"
+	return "Show or switch reasoning effort"
+}
+
+func (effortCmd) Args() string {
+	return "[level]"
 }
 
 // effortLevels are the rungs llm.Effort accepts; the llm package keeps its own

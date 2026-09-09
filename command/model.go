@@ -12,7 +12,11 @@ func (modelCmd) Name() string {
 }
 
 func (modelCmd) Help() string {
-	return "/model [name]   Show or switch model"
+	return "Show or switch model"
+}
+
+func (modelCmd) Args() string {
+	return "[name]"
 }
 
 func (modelCmd) Run(ctx Context, args string) {

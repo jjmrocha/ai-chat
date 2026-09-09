@@ -18,7 +18,11 @@ func (themeCmd) Name() string {
 }
 
 func (themeCmd) Help() string {
-	return "/theme [name]   Show or switch theme"
+	return "Show or switch theme"
+}
+
+func (themeCmd) Args() string {
+	return "[name]"
 }
 
 func (themeCmd) Run(ctx Context, args string) {

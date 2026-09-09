@@ -68,9 +68,18 @@ type Context interface {
 }
 
 // Command is a slash command registered with the core. Name is matched after
-// the leading '/'; Help is a one-liner listed by /help; Run performs the action.
+// the leading '/'; Help is the description listed by /help, without the command
+// name or any padding — the core aligns the column across every registered
+// command; Run performs the action.
 type Command interface {
 	Name() string
 	Help() string
 	Run(ctx Context, args string)
+}
+
+// Argumented is the optional half of Command for commands that take arguments.
+// Args returns the spec shown after the name in /help, such as "[on|off] [name]";
+// a command that implements nothing extra is listed by name alone.
+type Argumented interface {
+	Args() string
 }

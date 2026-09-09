@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-chat/theme"
@@ -183,16 +184,39 @@ func (c *Chat) helpText() string {
 	}
 	sort.Strings(names)
 
-	lines := make([]string, 0, len(names)+3)
-	lines = append(lines, "Commands:")
+	type entry struct{ usage, desc string }
+	entries := make([]entry, 0, len(names)+2)
 	for _, name := range names {
-		lines = append(lines, "  "+c.commands[name].Help())
+		cmd := c.commands[name]
+		entries = append(entries, entry{usage: usageOf(cmd), desc: cmd.Help()})
 	}
-	lines = append(lines,
-		"  /help           Show this message",
-		"  /exit           Quit",
+	entries = append(entries,
+		entry{usage: "/help", desc: "Show this message"},
+		entry{usage: "/exit", desc: "Quit"},
 	)
+
+	width := 0
+	for _, e := range entries {
+		width = max(width, utf8.RuneCountInString(e.usage))
+	}
+
+	lines := make([]string, 0, len(entries)+1)
+	lines = append(lines, "Commands:")
+	for _, e := range entries {
+		pad := strings.Repeat(" ", width-utf8.RuneCountInString(e.usage))
+		lines = append(lines, "  "+e.usage+pad+" "+e.desc)
+	}
 	return strings.Join(lines, "\n")
+}
+
+// usageOf renders a command as it appears in the left column of /help: its name
+// plus the argument spec, when it advertises one.
+func usageOf(cmd command.Command) string {
+	usage := "/" + cmd.Name()
+	if a, ok := cmd.(command.Argumented); ok && a.Args() != "" {
+		usage += " " + a.Args()
+	}
+	return usage
 }
 
 func (c *Chat) quit() {
