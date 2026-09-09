@@ -2,8 +2,10 @@ package command
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,6 +28,12 @@ func TestThemeCommand(t *testing.T) {
 		// then
 		if assert.Len(t, ctx.printed, 1) {
 			assert.Equal(t, Info, ctx.printed[0].kind)
+			lines := strings.Split(ctx.printed[0].text, "\n")
+			assert.Equal(t, "Themes:", lines[0])
+			for _, name := range theme.Names() {
+				assert.Contains(t, lines[1:], "  "+name)
+			}
+			assert.Len(t, lines, len(theme.Names())+1)
 		}
 	})
 

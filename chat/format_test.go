@@ -57,7 +57,7 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		result := defaultTelemetryFormatter(meta)
 
 		// then
-		assert.Equal(t, "[3 tool calls]", result)
+		assert.Equal(t, " 3 tool calls", result)
 	})
 
 	t.Run("all fields", func(t *testing.T) {
@@ -66,6 +66,7 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 			ToolCalls:    2,
 			LLMDuration:  1300 * time.Millisecond,
 			ToolDuration: 500 * time.Millisecond,
+			PromptTokens: 1200,
 			OutputTokens: 412,
 			TotalTokens:  1500,
 		}
@@ -74,7 +75,18 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		result := defaultTelemetryFormatter(meta)
 
 		// then
-		assert.Equal(t, "[2 tool calls · 1.3s llm · 0.5s tools · 412 out tok]", result)
+		assert.Equal(t, " 2 tool calls · 1.3s llm · 0.5s tools · ↑1.20K ↓412 tokens", result)
+	})
+
+	t.Run("input tokens only", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{PromptTokens: 1200}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, " ↑1.20K tokens", result)
 	})
 
 	t.Run("output tokens only", func(t *testing.T) {
@@ -85,7 +97,7 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		result := defaultTelemetryFormatter(meta)
 
 		// then
-		assert.Equal(t, "[100 out tok]", result)
+		assert.Equal(t, " ↓100 tokens", result)
 	})
 
 	t.Run("truncated reply flagged", func(t *testing.T) {
@@ -119,7 +131,7 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		result := defaultTelemetryFormatter(meta)
 
 		// then
-		assert.Equal(t, "[100 out tok]", result)
+		assert.Equal(t, " ↓100 tokens", result)
 	})
 }
 
@@ -138,7 +150,7 @@ func TestDefaultStatusFormatter(t *testing.T) {
 		result := defaultStatusFormatter(info)
 
 		// then
-		assert.Equal(t, "gpt-4 (openai) · medium · ctx:12% · 8.40K tok", result)
+		assert.Equal(t, "gpt-4 (openai) · medium · ctx: 12% · tokens: 8.40K", result)
 	})
 
 	t.Run("no name or provider", func(t *testing.T) {

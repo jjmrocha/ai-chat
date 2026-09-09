@@ -16,9 +16,17 @@ func TestModelCommand(t *testing.T) {
 		assert.NotEmpty(t, Model().Help())
 	})
 
-	t.Run("empty args prints usage", func(t *testing.T) {
+	t.Run("empty args lists available models", func(t *testing.T) {
 		// given
-		ctx := &mockedContext{}
+		ctx := &mockedContext{
+			agentFunc: func() AgentController {
+				return &mockedAgentController{
+					availableModelsFunc: func() []string {
+						return []string{"gpt-4", "claude-3"}
+					},
+				}
+			},
+		}
 
 		// when
 		Model().Run(ctx, "")
@@ -26,7 +34,25 @@ func TestModelCommand(t *testing.T) {
 		// then
 		if assert.Len(t, ctx.printed, 1) {
 			assert.Equal(t, Info, ctx.printed[0].kind)
-			assert.Equal(t, "Usage: /model <name>", ctx.printed[0].text)
+			assert.Equal(t, "Models:\n  gpt-4\n  claude-3", ctx.printed[0].text)
+		}
+	})
+
+	t.Run("empty args with no models available", func(t *testing.T) {
+		// given
+		ctx := &mockedContext{
+			agentFunc: func() AgentController {
+				return &mockedAgentController{}
+			},
+		}
+
+		// when
+		Model().Run(ctx, "")
+
+		// then
+		if assert.Len(t, ctx.printed, 1) {
+			assert.Equal(t, Info, ctx.printed[0].kind)
+			assert.Equal(t, "No models available.", ctx.printed[0].text)
 		}
 	})
 

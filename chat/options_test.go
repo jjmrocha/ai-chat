@@ -14,7 +14,7 @@ func TestWithDefaultCommands(t *testing.T) {
 	result := c.helpText()
 
 	// then
-	for _, name := range []string{"/model", "/models", "/effort", "/compact", "/clear", "/theme"} {
+	for _, name := range []string{"/model", "/effort", "/compact", "/clear"} {
 		assert.Contains(t, result, name)
 	}
 }

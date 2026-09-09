@@ -16,7 +16,7 @@ func TestEffortCommand(t *testing.T) {
 		assert.NotEmpty(t, Effort().Help())
 	})
 
-	t.Run("empty args prints usage", func(t *testing.T) {
+	t.Run("empty args lists effort levels", func(t *testing.T) {
 		// given
 		ctx := &mockedContext{}
 
@@ -26,7 +26,7 @@ func TestEffortCommand(t *testing.T) {
 		// then
 		if assert.Len(t, ctx.printed, 1) {
 			assert.Equal(t, Info, ctx.printed[0].kind)
-			assert.Equal(t, "Usage: /effort off|low|medium|max", ctx.printed[0].text)
+			assert.Equal(t, "Effort levels:\n  off\n  low\n  medium\n  max", ctx.printed[0].text)
 		}
 	})
 

@@ -9,9 +9,18 @@ import (
 type mcpCmd struct{ mgr MCPController }
 
 // MCP returns the /mcp command bound to mgr: show or toggle MCP servers.
-func MCP(mgr MCPController) Command { return mcpCmd{mgr: mgr} }
-func (mcpCmd) Name() string         { return "mcp" }
-func (mcpCmd) Help() string         { return "/mcp [on|off] [name]  Show or toggle MCP servers" }
+func MCP(mgr MCPController) Command {
+	return mcpCmd{mgr: mgr}
+}
+
+func (mcpCmd) Name() string {
+	return "mcp"
+}
+
+func (mcpCmd) Help() string {
+	return "/mcp [on|off] [name]  Show or toggle MCP servers"
+}
+
 func (c mcpCmd) Run(ctx Context, args string) {
 	action, name, _ := strings.Cut(args, " ")
 	action = strings.TrimSpace(action)
@@ -24,16 +33,15 @@ func (c mcpCmd) Run(ctx Context, args string) {
 			ctx.Print(Info, "No MCP servers registered.")
 			return
 		}
-		lines := make([]string, 0, len(statuses)+1)
-		lines = append(lines, "MCP servers:")
+		items := make([]string, 0, len(statuses))
 		for _, s := range statuses {
 			state := "off"
 			if s.Active {
 				state = "on"
 			}
-			lines = append(lines, fmt.Sprintf("  %s: %s", s.Name, state))
+			items = append(items, fmt.Sprintf("%s: %s", s.Name, state))
 		}
-		ctx.Print(Info, strings.Join(lines, "\n"))
+		ctx.Print(Info, listText("MCP servers", items))
 
 	case "on", "off":
 		target, ok := c.resolveName(name)

@@ -2,13 +2,27 @@ package command
 
 type modelCmd struct{}
 
-// Model returns the /model command: switch the active model.
-func Model() Command          { return modelCmd{} }
-func (modelCmd) Name() string { return "model" }
-func (modelCmd) Help() string { return "/model <name>   Switch model" }
+// Model returns the /model command: list the available models or switch to one.
+func Model() Command {
+	return modelCmd{}
+}
+
+func (modelCmd) Name() string {
+	return "model"
+}
+
+func (modelCmd) Help() string {
+	return "/model [name]   Show or switch model"
+}
+
 func (modelCmd) Run(ctx Context, args string) {
 	if args == "" {
-		ctx.Print(Info, "Usage: /model <name>")
+		models := ctx.Agent().AvailableModels()
+		if len(models) == 0 {
+			ctx.Print(Info, "No models available.")
+			return
+		}
+		ctx.Print(Info, listText("Models", models))
 		return
 	}
 	if err := ctx.Agent().ChangeModel(args); err != nil {

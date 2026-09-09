@@ -23,9 +23,6 @@ func WithCommand(cmd command.Command) Option {
 // WithModelCommand registers /model.
 func WithModelCommand() Option { return WithCommand(command.Model()) }
 
-// WithModelsCommand registers /models.
-func WithModelsCommand() Option { return WithCommand(command.Models()) }
-
 // WithEffortCommand registers /effort.
 func WithEffortCommand() Option { return WithCommand(command.Effort()) }
 
@@ -51,18 +48,16 @@ func WithSkills(coll command.SkillsController) Option {
 }
 
 // WithDefaultCommands registers every built-in command that needs no external
-// dependency: /model, /models, /effort, /compact, /clear and /theme. /mcp
-// needs a manager and /skills a collection; register those separately with
-// WithMCP and WithSkills.
+// dependency: /model, /effort, /compact and /clear. /theme needs an explicit
+// opt-in, /mcp a manager and /skills a collection; register those separately
+// with WithThemeCommand, WithMCP and WithSkills.
 func WithDefaultCommands() Option {
 	return func(c *Chat) {
 		for _, cmd := range []command.Command{
 			command.Model(),
-			command.Models(),
 			command.Effort(),
 			command.Compact(),
 			command.Clear(),
-			command.Theme(),
 		} {
 			c.register(cmd)
 		}

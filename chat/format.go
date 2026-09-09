@@ -55,8 +55,8 @@ func defaultTelemetryFormatter(meta agent.Metadata) string {
 	if meta.ToolDuration > 0 {
 		parts = append(parts, fmt.Sprintf("%.1fs tools", meta.ToolDuration.Seconds()))
 	}
-	if meta.OutputTokens > 0 {
-		parts = append(parts, fmt.Sprintf("%d out tok", meta.OutputTokens))
+	if tok := tokenPart(meta); tok != "" {
+		parts = append(parts, tok)
 	}
 	if truncated(meta.StopReason) {
 		parts = append(parts, "⚠ truncated")
@@ -64,7 +64,23 @@ func defaultTelemetryFormatter(meta agent.Metadata) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "[" + strings.Join(parts, " · ") + "]"
+	return " " + strings.Join(parts, " · ")
+}
+
+// tokenPart renders the turn's input and output counts as "↑in ↓out tokens",
+// dropping whichever side the provider did not report.
+func tokenPart(meta agent.Metadata) string {
+	var sides []string
+	if meta.PromptTokens > 0 {
+		sides = append(sides, "↑"+formatTokens(meta.PromptTokens))
+	}
+	if meta.OutputTokens > 0 {
+		sides = append(sides, "↓"+formatTokens(meta.OutputTokens))
+	}
+	if len(sides) == 0 {
+		return ""
+	}
+	return strings.Join(sides, " ") + " tokens"
 }
 
 // truncated reports whether the provider stopped the reply at its output-token
@@ -85,8 +101,8 @@ func defaultStatusFormatter(info StatusInfo) string {
 	if info.Effort != llm.EffortOff && info.Effort != "" {
 		parts = append(parts, string(info.Effort))
 	}
-	parts = append(parts, fmt.Sprintf("ctx:%.0f%%", info.CtxPct))
-	parts = append(parts, fmt.Sprintf("%s tok", formatTokens(info.Tokens)))
+	parts = append(parts, fmt.Sprintf("ctx: %.0f%%", info.CtxPct))
+	parts = append(parts, fmt.Sprintf("tokens: %s", formatTokens(info.Tokens)))
 	return strings.Join(parts, " · ")
 }
 

@@ -94,6 +94,7 @@ func run() error {
 		chat.WithDefaultCommands(),
 		chat.WithMCP(mcpMng),
 		chat.WithSkills(skillColl),
+		chat.WithThemeCommand(),
 	)
 
 	return ui.Run(context.Background(), core)

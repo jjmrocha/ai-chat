@@ -184,13 +184,12 @@ for _, line := range core.Transcript() {
 
 ## Built-in commands
 
-`WithDefaultCommands()` registers every built-in that needs no external dependency (`/model`, `/models`, `/effort`, `/compact`, `/clear`, `/theme`). Each is also available as an individual option:
+`WithDefaultCommands()` registers every built-in that needs no external dependency (`/model`, `/effort`, `/compact`, `/clear`). Each is also available as an individual option:
 
 | Constructor | Command | Effect |
 |---|---|---|
-| `WithModelCommand()` | `/model <name>` | Switch active model |
-| `WithModelsCommand()` | `/models` | List available models |
-| `WithEffortCommand()` | `/effort <level>` | Set reasoning effort (`off`, `low`, `medium`, `max`) |
+| `WithModelCommand()` | `/model [name]` | List available models or switch the active one |
+| `WithEffortCommand()` | `/effort [level]` | List reasoning effort levels (`off`, `low`, `medium`, `max`) or switch to one |
 | `WithClearCommand()` | `/clear` | Reset conversation |
 | `WithCompactCommand()` | `/compact` | Force context compaction |
 | `WithThemeCommand()` | `/theme [name]` | Show or switch theme |
