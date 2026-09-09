@@ -7,8 +7,9 @@ import (
 	"context"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
@@ -19,7 +20,13 @@ import (
 	"github.com/jjmrocha/ai-chat/theme"
 )
 
-const frameHeight = 4 // title + input + rule + status line
+const (
+	// frameHeight is the chrome around the input: title + rule + status line.
+	// The input's own height is added on top, so it varies with content.
+	frameHeight = 3
+	// maxInputLines caps how far the input grows before it starts scrolling.
+	maxInputLines = 6
+)
 
 type (
 	refreshMsg struct{}
@@ -82,10 +89,11 @@ type model struct {
 	core     chatCore
 	styles   styles
 	viewport viewport.Model
-	input    textinput.Model
+	input    textarea.Model
 	spinner  spinner.Model
 	renderer *glamour.TermRenderer
 	width    int
+	height   int
 	ready    bool
 
 	// rendered caches each transcript line's rendered form; lines are
@@ -100,9 +108,18 @@ type model struct {
 func newModel(core chatCore) model {
 	sty := newStyles(core.Theme())
 
-	ti := textinput.New()
-	ti.Prompt = "❯ "
+	ti := textarea.New()
 	ti.Placeholder = "Send a message…  (/help for commands)"
+	ti.ShowLineNumbers = false
+	ti.DynamicHeight = true
+	ti.MinHeight = 1
+	ti.MaxHeight = maxInputLines
+	// Enter submits, so the newline moves to the modifiers terminals can send.
+	ti.KeyMap.InsertNewline = key.NewBinding(
+		key.WithKeys("shift+enter", "alt+enter", "ctrl+j"),
+		key.WithHelp("shift+enter", "insert newline"),
+	)
+	ti.SetPromptFunc(2, func(textarea.PromptInfo) string { return "❯ " })
 	ti.Focus()
 	tst := ti.Styles()
 	tst.Focused.Prompt = sty.user
@@ -131,7 +148,7 @@ func newRenderer(width int) *glamour.TermRenderer {
 	return r
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, m.spinner.Tick) }
+func (m model) Init() tea.Cmd { return tea.Batch(textarea.Blink, m.spinner.Tick) }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -140,9 +157,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderer = newRenderer(msg.Width)
 		}
 		m.width = msg.Width
+		m.height = msg.Height
 		m.viewport.SetWidth(msg.Width)
-		m.viewport.SetHeight(max(msg.Height-frameHeight, 0))
 		m.input.SetWidth(max(msg.Width-2, 0))
+		m.layout()
 		m.ready = true
 		return m.refresh(), nil
 
@@ -175,7 +193,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
+	m.layout()
 	return m, tea.Batch(cmds...)
+}
+
+// layout gives the viewport whatever height the grown input leaves behind.
+func (m *model) layout() {
+	m.viewport.SetHeight(max(m.height-frameHeight-m.input.Height(), 0))
 }
 
 func (m model) View() tea.View {

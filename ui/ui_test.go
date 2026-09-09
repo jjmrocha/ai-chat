@@ -187,6 +187,67 @@ func TestModelUpdate(t *testing.T) {
 		assert.Empty(t, result.input.Value())
 	})
 
+	t.Run("shift+enter inserts a newline instead of submitting", func(t *testing.T) {
+		// given
+		submitted := false
+		core := &mockedChatCore{submitFunc: func(string) { submitted = true }}
+		m := sizedModel(t, core)
+		m.input.SetValue("first")
+
+		// when
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
+
+		// then
+		assert.False(t, submitted, "shift+enter must not submit")
+		result, ok := updated.(model)
+		require.True(t, ok)
+		assert.Equal(t, "first\n", result.input.Value())
+	})
+
+	t.Run("enter submits a multi-line value intact", func(t *testing.T) {
+		// given
+		var submitted string
+		core := &mockedChatCore{submitFunc: func(text string) { submitted = text }}
+		m := sizedModel(t, core)
+		m.input.SetValue("line one\nline two")
+
+		// when
+		m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+		// then
+		assert.Equal(t, "line one\nline two", submitted)
+	})
+
+	t.Run("input grows with content and the viewport gives up the rows", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+		oneLine := m.viewport.Height()
+
+		// when
+		m.input.SetValue("a\nb\nc")
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+
+		// then
+		result, ok := updated.(model)
+		require.True(t, ok)
+		assert.Equal(t, 3, result.input.Height())
+		assert.Equal(t, oneLine-2, result.viewport.Height())
+	})
+
+	t.Run("input stops growing at the cap", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+
+		// when
+		m.input.SetValue(strings.Repeat("x\n", 20))
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+
+		// then
+		result, ok := updated.(model)
+		require.True(t, ok)
+		assert.Equal(t, maxInputLines, result.input.Height())
+	})
+
 	t.Run("refresh picks up new transcript lines", func(t *testing.T) {
 		// given
 		lines := []chat.Line{}
