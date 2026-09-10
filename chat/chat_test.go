@@ -935,3 +935,144 @@ func TestFormatToolCall(t *testing.T) {
 		})
 	}
 }
+
+func TestChatQueue(t *testing.T) {
+	t.Run("nothing is queued on an idle chat", func(t *testing.T) {
+		// given
+		c := newChat("test")
+
+		// when
+		result := c.Queued()
+
+		// then
+		assert.False(t, result)
+	})
+
+	t.Run("input submitted during a turn is queued, not dropped", func(t *testing.T) {
+		// given
+		started, release := make(chan struct{}, 1), make(chan struct{})
+		c := newTestChat(t, &mockedAgentBackend{
+			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				<-release
+				return &agent.Response{Content: "reply"}, nil
+			},
+		})
+		c.Submit("first")
+		<-started
+		defer close(release)
+
+		// when
+		c.Submit("second")
+
+		// then
+		assert.True(t, c.Queued())
+	})
+
+	t.Run("the queue drains in submission order once the turn ends", func(t *testing.T) {
+		// given
+		var mu sync.Mutex
+		var seen []string
+		started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		c := newTestChat(t, &mockedAgentBackend{
+			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
+				mu.Lock()
+				seen = append(seen, input)
+				count := len(seen)
+				mu.Unlock()
+				switch count {
+				case 1:
+					close(started)
+					<-release
+				case 3:
+					close(done)
+				}
+				return &agent.Response{Content: "reply"}, nil
+			},
+		})
+		c.Submit("first")
+		<-started
+
+		// when
+		c.Submit("second")
+		c.Submit("third")
+		close(release)
+
+		// then
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for the queue to drain")
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		assert.Equal(t, []string{"first", "second", "third"}, seen)
+	})
+
+	t.Run("a command queued during a turn runs after it", func(t *testing.T) {
+		// given
+		started, release, ran := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		mockCmd := &mockCommand{
+			nameFunc: func() string { return "hello" },
+			runFunc:  func(ctx command.Context, args string) { close(ran) },
+		}
+		c := newTestChat(t, &mockedAgentBackend{
+			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
+				close(started)
+				<-release
+				return &agent.Response{Content: "reply"}, nil
+			},
+		}, WithCommand(mockCmd))
+		c.Submit("first")
+		<-started
+
+		// when
+		c.Submit("/hello")
+		close(release)
+
+		// then
+		select {
+		case <-ran:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for the queued command")
+		}
+	})
+}
+
+func TestChatQueueOrdering(t *testing.T) {
+	// given
+	started, release := make(chan struct{}), make(chan struct{})
+	var c *Chat
+	c = newTestChat(t, &mockedAgentBackend{
+		processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
+			c.ToolCalled("file_workdir", nil)
+			close(started)
+			<-release
+			return &agent.Response{Content: "the folder is ai-chat"}, nil
+		},
+	})
+	o := newRecordingObserver()
+	c.SetObserver(o)
+	c.Submit("what is the name of this folder?")
+	<-started
+
+	// when
+	c.Submit("/help")
+	close(release)
+
+	// then
+	require.Eventually(t, func() bool {
+		return !c.Busy() && !c.Queued()
+	}, time.Second, 5*time.Millisecond)
+
+	kinds := make([]command.Kind, 0)
+	for _, ln := range c.Transcript() {
+		kinds = append(kinds, ln.Kind)
+	}
+	assert.Equal(t, []command.Kind{
+		command.User, command.Activity, command.Reply, command.Info,
+	}, kinds, "a queued command reaches the transcript after the turn it waited on")
+}

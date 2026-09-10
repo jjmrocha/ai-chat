@@ -61,6 +61,7 @@ type Chat struct {
 	transcript []Line
 	observer   Observer
 	busy       bool
+	queue      []string
 	lastMeta   agent.Metadata
 	theme      theme.Theme
 }
@@ -130,6 +131,13 @@ func (c *Chat) Busy() bool {
 	return c.busy
 }
 
+// Queued reports whether input is waiting behind the turn in flight.
+func (c *Chat) Queued() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.queue) > 0
+}
+
 // LastMetadata returns the metadata of the most recently completed turn.
 func (c *Chat) LastMetadata() agent.Metadata {
 	c.mu.Lock()
@@ -138,43 +146,86 @@ func (c *Chat) LastMetadata() agent.Metadata {
 }
 
 // Submit handles a line of user input: a slash command is dispatched, otherwise
-// the text runs as an agent turn. Blank input and input arriving while a turn is
-// already in flight are ignored. Agent and command work run off the caller's
-// goroutine; results reach the transcript through the observer.
+// the text runs as an agent turn. Blank input is ignored; input arriving while a
+// turn is in flight is queued and runs, in submission order, once that turn
+// ends. Agent and command work run off the caller's goroutine; results reach the
+// transcript through the observer.
 func (c *Chat) Submit(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" || c.Busy() {
+	if text == "" {
+		return
+	}
+	if c.enqueue(text) {
+		c.notify()
 		return
 	}
 	if strings.HasPrefix(text, "/") {
 		c.dispatch(text)
 		return
 	}
-	c.mu.Lock()
-	c.busy = true
-	c.mu.Unlock()
 	go c.process(c.baseCtx, text)
 }
 
+// enqueue parks text behind the turn in flight and reports whether it did. On an
+// idle chat it instead claims the turn for the caller, so the busy check and the
+// claim cannot be split by a second Submit. Commands claim nothing: they run
+// alongside an idle chat.
+func (c *Chat) enqueue(text string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.busy {
+		c.queue = append(c.queue, text)
+		return true
+	}
+	if !strings.HasPrefix(text, "/") {
+		c.busy = true
+	}
+	return false
+}
+
+// dequeue takes the oldest queued input, or clears the busy flag when there is
+// none left. Both happen under one lock, so no Submit can slip between them and
+// start a second turn beside the one draining.
+func (c *Chat) dequeue() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.queue) == 0 {
+		c.busy = false
+		return "", false
+	}
+	next := c.queue[0]
+	c.queue = c.queue[1:]
+	return next, true
+}
+
 func (c *Chat) dispatch(input string) {
+	if cmd, args, ok := c.resolve(input); ok {
+		go cmd.Run(c, args)
+	}
+}
+
+// resolve splits input into a registered command and its arguments. The
+// built-ins and the unknown-name error are handled here rather than returned,
+// so both callers get them without repeating the switch.
+func (c *Chat) resolve(input string) (command.Command, string, bool) {
 	name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
 	args = strings.TrimSpace(args)
 
 	switch name {
 	case "exit":
 		c.quit()
-		return
+		return nil, "", false
 	case "help":
 		c.append(command.Info, c.helpText())
-		return
+		return nil, "", false
 	}
 
 	cmd, ok := c.commands[name]
 	if !ok {
 		c.append(command.Error, "Error: unknown command /"+name)
-		return
+		return nil, "", false
 	}
-	go cmd.Run(c, args)
+	return cmd, args, true
 }
 
 func (c *Chat) helpText() string {
@@ -228,13 +279,29 @@ func (c *Chat) quit() {
 	}
 }
 
+// process runs text as an agent turn, then keeps draining whatever the user
+// typed meanwhile. The busy flag is held for the whole drain: clearing it is
+// what lets the next Submit start a turn, and dequeue only does so once the
+// queue is empty. A queued command runs inline here, so it cannot overtake the
+// input queued behind it.
 func (c *Chat) process(ctx context.Context, text string) {
+	for ok := true; ok; text, ok = c.dequeue() {
+		if strings.HasPrefix(text, "/") {
+			if cmd, args, found := c.resolve(text); found {
+				cmd.Run(c, args)
+			}
+			continue
+		}
+		c.turn(ctx, text)
+	}
+}
+
+func (c *Chat) turn(ctx context.Context, text string) {
 	c.append(command.User, "❯ "+text)
 
 	resp, err := c.agent.Process(ctx, text)
 
 	c.mu.Lock()
-	c.busy = false
 	if err == nil && resp != nil {
 		c.lastMeta = resp.Metadata
 	}

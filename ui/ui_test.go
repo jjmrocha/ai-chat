@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,7 @@ type mockedChatCore struct {
 	transcriptFunc func() []chat.Line
 	busyFunc       func() bool
 	statusTextFunc func() string
+	queuedFunc     func() bool
 	submitFunc     func(text string)
 }
 
@@ -49,6 +51,13 @@ func (m *mockedChatCore) StatusText() string {
 		return ""
 	}
 	return m.statusTextFunc()
+}
+
+func (m *mockedChatCore) Queued() bool {
+	if m.queuedFunc == nil {
+		return false
+	}
+	return m.queuedFunc()
 }
 
 func (m *mockedChatCore) Submit(text string) {
@@ -251,6 +260,41 @@ func TestModelView(t *testing.T) {
 		assert.Contains(t, lines[len(lines)-1], "model-x")
 	})
 
+	t.Run("the live region opens with a blank line, clearing the last printed block", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+
+		// when
+		lines := strings.Split(m.View().Content, "\n")
+
+		// then
+		require.NotEmpty(t, lines)
+		assert.Empty(t, strings.TrimSpace(lines[0]))
+	})
+
+	t.Run("the placeholder announces input waiting behind the turn", func(t *testing.T) {
+		// given
+		core := &mockedChatCore{queuedFunc: func() bool { return true }}
+		m := sizedModel(t, core)
+
+		// when
+		result := m.placeholder()
+
+		// then
+		assert.Equal(t, queuedPlaceholder, result)
+	})
+
+	t.Run("the placeholder invites a message when nothing is queued", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+
+		// when
+		result := m.placeholder()
+
+		// then
+		assert.Equal(t, idlePlaceholder, result)
+	})
+
 	t.Run("view is inline so the terminal keeps selection and scrollback", func(t *testing.T) {
 		// given
 		m := sizedModel(t, &mockedChatCore{})
@@ -263,21 +307,6 @@ func TestModelView(t *testing.T) {
 		assert.Equal(t, tea.MouseModeNone, result.MouseMode)
 	})
 
-	t.Run("busy shows spinner instead of status", func(t *testing.T) {
-		// given
-		core := &mockedChatCore{
-			busyFunc:       func() bool { return true },
-			statusTextFunc: func() string { return "model-x" },
-		}
-		m := sizedModel(t, core)
-
-		// when
-		result := m.View()
-
-		// then
-		assert.Contains(t, result.Content, "thinking…")
-		assert.NotContains(t, result.Content, "model-x")
-	})
 }
 
 func TestModelUpdate(t *testing.T) {
@@ -473,7 +502,7 @@ func TestModelUpdate(t *testing.T) {
 		assert.Contains(t, pending[0], "second")
 		assert.NotContains(t, pending[0], "first")
 		assert.True(t, strings.HasPrefix(pending[0], "\n"), "a blank line opens each block")
-		assert.True(t, strings.HasSuffix(pending[0], "\n"), "and another closes it")
+		assert.False(t, strings.HasSuffix(pending[0], "\n"), "and nothing closes it, so blocks are one blank line apart")
 	})
 
 	t.Run("emitting advances the printed count and returns a command", func(t *testing.T) {
@@ -492,6 +521,42 @@ func TestModelUpdate(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, 1, result.printed)
 		assert.NotNil(t, cmd, "the new line has to reach the terminal")
+	})
+
+	t.Run("no second print starts while one is in flight", func(t *testing.T) {
+		// given
+		lines := []chat.Line{{Kind: command.Info, Text: "first"}}
+		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
+		m := refreshed(t, sizedModel(t, core))
+		require.True(t, m.printing, "the first line is on its way to the terminal")
+		lines = append(lines, chat.Line{Kind: command.Info, Text: "second"})
+
+		// when
+		updated, cmd := m.Update(refreshMsg{})
+
+		// then
+		result, ok := updated.(model)
+		require.True(t, ok)
+		assert.Nil(t, cmd, "printing out of order is worse than printing late")
+		assert.Equal(t, 1, result.printed)
+	})
+
+	t.Run("what accumulated prints once the in-flight print lands", func(t *testing.T) {
+		// given
+		lines := []chat.Line{{Kind: command.Info, Text: "first"}}
+		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
+		m := refreshed(t, sizedModel(t, core))
+		lines = append(lines, chat.Line{Kind: command.Info, Text: "second"})
+		m = refreshed(t, m)
+
+		// when
+		updated, cmd := m.Update(printedMsg{})
+
+		// then
+		result, ok := updated.(model)
+		require.True(t, ok)
+		assert.NotNil(t, cmd, "the line held back has to reach the terminal")
+		assert.Equal(t, 2, result.printed)
 	})
 
 	t.Run("nothing new emits no command", func(t *testing.T) {
@@ -517,7 +582,7 @@ func TestModelUpdate(t *testing.T) {
 			{Kind: command.Info, Text: "old two"},
 		}
 		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := refreshed(t, sizedModel(t, core))
+		m := flushed(t, refreshed(t, sizedModel(t, core)))
 		require.Equal(t, 2, m.printed)
 
 		// when: /clear empties the transcript, then prints its confirmation
@@ -535,7 +600,7 @@ func TestModelUpdate(t *testing.T) {
 		// given
 		lines := []chat.Line{{Kind: command.Info, Text: "old line"}}
 		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := refreshed(t, sizedModel(t, core))
+		m := flushed(t, refreshed(t, sizedModel(t, core)))
 		require.Equal(t, 1, m.printed)
 
 		// when
@@ -598,10 +663,84 @@ func submitAll(t *testing.T, texts ...string) model {
 }
 
 // refreshed drives one refresh cycle and returns the resulting model.
+// flushed delivers the message that closes an in-flight print sequence, the way
+// the runtime does once the blocks have reached the terminal.
+func flushed(t *testing.T, m model) model {
+	t.Helper()
+	updated, _ := m.Update(printedMsg{})
+	result, ok := updated.(model)
+	require.True(t, ok)
+	return result
+}
+
 func refreshed(t *testing.T, m model) model {
 	t.Helper()
 	updated, _ := m.Update(refreshMsg{})
 	result, ok := updated.(model)
 	require.True(t, ok)
 	return result
+}
+
+func TestModelThinking(t *testing.T) {
+	t.Run("the row is blank while the agent is idle", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+
+		// when
+		result := m.thinkingLine()
+
+		// then
+		assert.Empty(t, result)
+	})
+
+	t.Run("the row counts the wait in whole seconds", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{busyFunc: func() bool { return true }})
+		m.thinkingSince = time.Now().Add(-10 * time.Second)
+
+		// when
+		result := m.thinkingLine()
+
+		// then
+		assert.Contains(t, result, "Thinking for 10s")
+	})
+
+	t.Run("the clock starts when a turn begins", func(t *testing.T) {
+		// given
+		m := newModel(&mockedChatCore{busyFunc: func() bool { return true }})
+		require.True(t, m.thinkingSince.IsZero())
+
+		// when
+		m.trackThinking()
+
+		// then
+		assert.False(t, m.thinkingSince.IsZero())
+	})
+
+	t.Run("the clock stops when the agent goes idle", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+		m.thinkingSince = time.Now()
+
+		// when
+		m.trackThinking()
+
+		// then
+		assert.True(t, m.thinkingSince.IsZero())
+	})
+
+	t.Run("the status line keeps the model info while the agent thinks", func(t *testing.T) {
+		// given
+		core := &mockedChatCore{
+			busyFunc:       func() bool { return true },
+			statusTextFunc: func() string { return "model-x" },
+		}
+		m := sizedModel(t, core)
+
+		// when
+		lines := strings.Split(m.View().Content, "\n")
+
+		// then
+		assert.Contains(t, lines[len(lines)-1], "model-x")
+	})
 }

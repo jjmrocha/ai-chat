@@ -8,6 +8,7 @@ package ui
 import (
 	"context"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
@@ -27,11 +28,21 @@ const (
 	// inputIndent pads every row of the input, standing in for the prompt marker
 	// the input no longer carries and lining it up with the indented replies.
 	inputIndent = "  "
+	// idlePlaceholder invites the first message; queuedPlaceholder replaces it
+	// once input is parked behind the turn in flight, which is the only sign the
+	// user gets that what they typed was taken but has not started yet.
+	idlePlaceholder   = "Send a message…  (/help for commands)"
+	queuedPlaceholder = "(queued)"
 )
 
 type (
 	refreshMsg struct{}
 	quitMsg    struct{}
+	// printedMsg closes a print sequence. Bubble Tea runs the commands an Update
+	// returns on their own goroutines, so two print sequences in flight can reach
+	// the terminal in either order; this one reports that the sequence landed and
+	// the next may start.
+	printedMsg struct{}
 )
 
 type observer struct{ program *tea.Program }
@@ -83,6 +94,7 @@ type chatCore interface {
 	Transcript() []chat.Line
 	Busy() bool
 	StatusText() string
+	Queued() bool
 	Submit(text string)
 }
 
@@ -99,6 +111,16 @@ type model struct {
 	// transcript is append-only apart from /clear, so this doubles as the mark
 	// separating printed history from what still has to go out.
 	printed int
+
+	// thinkingSince marks when the current wait on the agent began, or is zero
+	// while the agent is idle. The spinner already ticks several times a second,
+	// so the elapsed count re-renders without a clock of its own.
+	thinkingSince time.Time
+
+	// printing is set while a print sequence is on its way to the terminal. Only
+	// one may be in flight, so blocks appended meanwhile wait for the printedMsg
+	// that closes it rather than racing ahead of it.
+	printing bool
 
 	// quitting blanks the live region for the final render, so the shell prompt
 	// comes back under the conversation instead of under a stale input box.
@@ -118,7 +140,6 @@ func newModel(core chatCore) model {
 	sty := newStyles(core.Theme())
 
 	ti := textarea.New()
-	ti.Placeholder = "Send a message…  (/help for commands)"
 	ti.ShowLineNumbers = false
 	ti.DynamicHeight = true
 	ti.MinHeight = 1
@@ -155,6 +176,8 @@ func newRenderer(width int) *glamour.TermRenderer {
 func (m model) Init() tea.Cmd { return tea.Batch(textarea.Blink, m.spinner.Tick) }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.trackThinking()
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		if msg.Width != m.width {
@@ -166,6 +189,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.emit()
 
 	case refreshMsg:
+		return m.emit()
+
+	case printedMsg:
+		m.printing = false
 		return m.emit()
 
 	case quitMsg:
@@ -259,15 +286,16 @@ func (m model) View() tea.View {
 
 	content := "Initializing…"
 	if m.ready {
-		status := m.styles.footer.Render(m.core.StatusText())
-		if m.core.Busy() {
-			status = m.spinner.View() + m.styles.footer.Render(" thinking…")
-		}
+		m.input.Placeholder = m.placeholder()
+		// The thinking row opens the live region and keeps its line while the
+		// agent idles, so the layout never jumps and printed blocks always have
+		// a blank line between them and the title bar.
 		content = lipgloss.JoinVertical(lipgloss.Left,
+			m.thinkingLine(),
 			m.titleBar(),
 			m.input.View(),
 			m.styles.headerName.Render(m.hrule()),
-			status,
+			m.styles.footer.Render(m.core.StatusText()),
 		)
 	}
 
@@ -298,6 +326,10 @@ func (m model) titleBar() string {
 func (m model) emit() (tea.Model, tea.Cmd) {
 	m.restyle()
 
+	if m.printing {
+		return m, nil
+	}
+
 	// A shrunk transcript means /clear reset the session. The conversation stays
 	// in the scrollback where the user can still read it; only the mark moves,
 	// so whatever follows the reset is printed from the start.
@@ -310,11 +342,13 @@ func (m model) emit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.printed += len(blocks)
+	m.printing = true
 
-	cmds := make([]tea.Cmd, 0, len(blocks))
+	cmds := make([]tea.Cmd, 0, len(blocks)+1)
 	for _, b := range blocks {
 		cmds = append(cmds, tea.Println(b))
 	}
+	cmds = append(cmds, func() tea.Msg { return printedMsg{} })
 	return m, tea.Sequence(cmds...)
 }
 
@@ -326,8 +360,9 @@ func (m model) pending() []string {
 	}
 	blocks := make([]string, 0, len(lines)-m.printed)
 	for _, ln := range lines[m.printed:] {
-		// A blank line on each side gives every block room of its own.
-		blocks = append(blocks, "\n"+m.renderBlock(ln)+"\n")
+		// A leading blank line gives every block room of its own. Closing one
+		// too would double the gap, since the next block opens with its own.
+		blocks = append(blocks, "\n"+m.renderBlock(ln))
 	}
 	return blocks
 }
@@ -362,6 +397,36 @@ func (m model) renderBlock(ln chat.Line) string {
 	default:
 		return ln.Text
 	}
+}
+
+// trackThinking starts the wait clock when a turn begins and stops it when the
+// agent goes idle. A queued drain is one wait: the clock spans it rather than
+// restarting per turn, since what it reports is how long the user has waited.
+func (m *model) trackThinking() {
+	switch {
+	case !m.core.Busy():
+		m.thinkingSince = time.Time{}
+	case m.thinkingSince.IsZero():
+		m.thinkingSince = time.Now()
+	}
+}
+
+// thinkingLine is the row above the title bar: the spinner and how long the wait
+// has run, or an empty line holding that row while the agent idles.
+func (m model) thinkingLine() string {
+	if m.thinkingSince.IsZero() {
+		return ""
+	}
+	elapsed := time.Since(m.thinkingSince).Truncate(time.Second)
+	return m.spinner.View() + m.styles.footer.Render(" Thinking for "+elapsed.String())
+}
+
+// placeholder is the prompt an empty input shows.
+func (m model) placeholder() string {
+	if m.core.Queued() {
+		return queuedPlaceholder
+	}
+	return idlePlaceholder
 }
 
 func (m model) renderMarkdown(s string) string {
