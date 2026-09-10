@@ -1,6 +1,8 @@
-// Package ui renders a chat.Chat as a Bubble Tea terminal program. It observes
-// the core and re-renders on every transcript change; it holds no conversation
-// state of its own beyond a cache of already-rendered lines.
+// Package ui renders a chat.Chat as an inline Bubble Tea terminal program. It
+// observes the core and prints each new transcript line above a live region
+// holding the input and the status bar. Finished lines belong to the terminal's
+// scrollback from then on, so selection, copying and wheel scrolling stay
+// native; the program never enters the alternate screen or captures the mouse.
 package ui
 
 import (
@@ -10,7 +12,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
@@ -21,11 +22,11 @@ import (
 )
 
 const (
-	// frameHeight is the chrome around the input: title + rule + status line.
-	// The input's own height is added on top, so it varies with content.
-	frameHeight = 3
 	// maxInputLines caps how far the input grows before it starts scrolling.
 	maxInputLines = 6
+	// inputIndent pads every row of the input, standing in for the prompt marker
+	// the input no longer carries and lining it up with the indented replies.
+	inputIndent = "  "
 )
 
 type (
@@ -88,23 +89,20 @@ type chatCore interface {
 type model struct {
 	core     chatCore
 	styles   styles
-	viewport viewport.Model
 	input    textarea.Model
 	spinner  spinner.Model
 	renderer *glamour.TermRenderer
 	width    int
-	height   int
 	ready    bool
-	// mouseCapture routes wheel and drag events to the program. It stays off by
-	// default: capturing them takes plain-drag text selection away from the
-	// terminal, and copying matters more than scrolling by wheel.
-	mouseCapture bool
 
-	// rendered caches each transcript line's rendered form; lines are
-	// append-only and immutable, so each is rendered (and markdown-parsed) once.
-	// renderedWidth records the width they were rendered at.
-	rendered      []string
-	renderedWidth int
+	// printed counts the transcript lines already sent to the scrollback. The
+	// transcript is append-only apart from /clear, so this doubles as the mark
+	// separating printed history from what still has to go out.
+	printed int
+
+	// quitting blanks the live region for the final render, so the shell prompt
+	// comes back under the conversation instead of under a stale input box.
+	quitting bool
 
 	// history holds submitted prompts, oldest first. histIdx points at the one
 	// currently recalled; when it equals len(history) the user is editing their
@@ -130,39 +128,19 @@ func newModel(core chatCore) model {
 		key.WithKeys("shift+enter", "alt+enter", "ctrl+j"),
 		key.WithHelp("shift+enter", "insert newline"),
 	)
-	ti.SetPromptFunc(2, func(textarea.PromptInfo) string { return "❯ " })
+	ti.Prompt = inputIndent
 	ti.Focus()
-	tst := ti.Styles()
-	tst.Focused.Prompt = sty.user
-	ti.SetStyles(tst)
-
-	vp := viewport.New()
-	vp.KeyMap = pagerKeyMap()
 
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(core.Theme().Info))
 
 	return model{
-		core:          core,
-		styles:        sty,
-		lastTheme:     core.Theme(),
-		viewport:      vp,
-		input:         ti,
-		spinner:       sp,
-		renderer:      newRenderer(0),
-		renderedWidth: -1,
-	}
-}
-
-// pagerKeyMap keeps the transcript on paging keys only. The viewport sees every
-// key the input does, so the stock keymap's bare letters (f, b, j, k, u, d,
-// space) would scroll the transcript as the user types their message.
-func pagerKeyMap() viewport.KeyMap {
-	return viewport.KeyMap{
-		PageDown:     key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "page down")),
-		PageUp:       key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
-		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "½ page down")),
-		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "½ page up")),
+		core:      core,
+		styles:    sty,
+		lastTheme: core.Theme(),
+		input:     ti,
+		spinner:   sp,
+		renderer:  newRenderer(0),
 	}
 }
 
@@ -183,17 +161,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderer = newRenderer(msg.Width)
 		}
 		m.width = msg.Width
-		m.height = msg.Height
-		m.viewport.SetWidth(msg.Width)
 		m.input.SetWidth(max(msg.Width-2, 0))
-		m.layout()
 		m.ready = true
-		return m.refresh(), nil
+		return m.emit()
 
 	case refreshMsg:
-		return m.refresh(), nil
+		return m.emit()
 
 	case quitMsg:
+		m.quitting = true
 		return m, tea.Quit
 
 	case spinner.TickMsg:
@@ -204,16 +180,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
+			m.quitting = true
 			return m, tea.Quit
 		case "enter":
 			text := m.input.Value()
 			m.input.Reset()
 			m.remember(text)
 			m.core.Submit(text)
-			m.layout()
-			return m, nil
-		case "f2":
-			m.mouseCapture = !m.mouseCapture
 			return m, nil
 		case "up":
 			if m.recallOlder() {
@@ -226,14 +199,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	var cmds []tea.Cmd
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	cmds = append(cmds, cmd)
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
-	m.layout()
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 // remember appends a submitted prompt to the history and ends any browsing.
@@ -282,15 +250,13 @@ func (m *model) recallNewer() bool {
 func (m *model) setInput(text string) {
 	m.input.SetValue(text)
 	m.input.CursorEnd()
-	m.layout()
-}
-
-// layout gives the viewport whatever height the grown input leaves behind.
-func (m *model) layout() {
-	m.viewport.SetHeight(max(m.height-frameHeight-m.input.Height(), 0))
 }
 
 func (m model) View() tea.View {
+	if m.quitting {
+		return tea.NewView("")
+	}
+
 	content := "Initializing…"
 	if m.ready {
 		status := m.styles.footer.Render(m.core.StatusText())
@@ -298,7 +264,6 @@ func (m model) View() tea.View {
 			status = m.spinner.View() + m.styles.footer.Render(" thinking…")
 		}
 		content = lipgloss.JoinVertical(lipgloss.Left,
-			m.viewport.View(),
 			m.titleBar(),
 			m.input.View(),
 			m.styles.headerName.Render(m.hrule()),
@@ -307,24 +272,18 @@ func (m model) View() tea.View {
 	}
 
 	v := tea.NewView(content)
-	v.AltScreen = true
-	if m.mouseCapture {
-		v.MouseMode = tea.MouseModeCellMotion
-	} else {
-		v.MouseMode = tea.MouseModeNone
-	}
+	v.AltScreen = false
+	v.MouseMode = tea.MouseModeNone
 	return v
 }
 
 func (m model) hrule() string { return strings.Repeat("─", m.width) }
 
+// titleBar is the rule that caps the live region, carrying the chat's name.
 func (m model) titleBar() string {
 	name := m.core.Name()
 	if name == "" {
 		return m.styles.headerName.Render(m.hrule())
-	}
-	if m.mouseCapture {
-		name += " · mouse"
 	}
 	label := " " + name + " "
 	left := 5
@@ -334,35 +293,55 @@ func (m model) titleBar() string {
 	return l + m.styles.headerName.Render(label) + r
 }
 
-func (m model) refresh() model {
-	t := m.core.Theme()
-	if m.lastTheme != t {
-		m.styles = newStyles(t)
-		m.lastTheme = t
-		m.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info))
-		tst := m.input.Styles()
-		tst.Focused.Prompt = m.styles.user
-		m.input.SetStyles(tst)
-		m.rendered = m.rendered[:0]
+// emit sends every transcript line not yet printed to the scrollback and, when
+// the transcript has shrunk under it, wipes the screen first.
+func (m model) emit() (tea.Model, tea.Cmd) {
+	m.restyle()
+
+	// A shrunk transcript means /clear reset the session. The conversation stays
+	// in the scrollback where the user can still read it; only the mark moves,
+	// so whatever follows the reset is printed from the start.
+	if len(m.core.Transcript()) < m.printed {
+		m.printed = 0
 	}
 
+	blocks := m.pending()
+	if len(blocks) == 0 {
+		return m, nil
+	}
+	m.printed += len(blocks)
+
+	cmds := make([]tea.Cmd, 0, len(blocks))
+	for _, b := range blocks {
+		cmds = append(cmds, tea.Println(b))
+	}
+	return m, tea.Sequence(cmds...)
+}
+
+// pending renders the transcript lines that have not reached the terminal yet.
+func (m model) pending() []string {
 	lines := m.core.Transcript()
+	if len(lines) <= m.printed {
+		return nil
+	}
+	blocks := make([]string, 0, len(lines)-m.printed)
+	for _, ln := range lines[m.printed:] {
+		// A blank line on each side gives every block room of its own.
+		blocks = append(blocks, "\n"+m.renderBlock(ln)+"\n")
+	}
+	return blocks
+}
 
-	if m.renderedWidth != m.width || len(lines) < len(m.rendered) {
-		m.rendered = m.rendered[:0]
-		m.renderedWidth = m.width
+// restyle repoints the styles at the active theme. Lines already in the
+// scrollback keep the palette they were printed with; only new ones change.
+func (m *model) restyle() {
+	t := m.core.Theme()
+	if m.lastTheme == t {
+		return
 	}
-	for i := len(m.rendered); i < len(lines); i++ {
-		m.rendered = append(m.rendered, m.renderBlock(lines[i]))
-	}
-
-	if len(m.rendered) == 0 {
-		m.viewport.SetContent("")
-	} else {
-		m.viewport.SetContent(strings.Join(m.rendered, "\n\n"))
-	}
-	m.viewport.GotoBottom()
-	return m
+	m.styles = newStyles(t)
+	m.lastTheme = t
+	m.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info))
 }
 
 func (m model) renderBlock(ln chat.Line) string {
@@ -393,7 +372,7 @@ func (m model) renderMarkdown(s string) string {
 	if err != nil {
 		return s
 	}
-	return strings.TrimRight(out, "\n")
+	return strings.Trim(out, "\n")
 }
 
 // Run renders core in a Bubble Tea program until the user quits or ctx is done.

@@ -731,7 +731,7 @@ func TestChatProcess(t *testing.T) {
 		transcript := c.Transcript()
 		require.NotEmpty(t, transcript)
 		assert.Equal(t, command.User, transcript[0].Kind)
-		assert.Contains(t, transcript[0].Text, "hello")
+		assert.Equal(t, "❯ hello", transcript[0].Text, "the echo keeps its prompt marker")
 	})
 
 	t.Run("agent error appends error line", func(t *testing.T) {

@@ -87,6 +87,17 @@ Fuller examples live in [`cmd/`](cmd): [`ai-chat`](cmd/ai-chat/main.go) wires a 
 
 `ui` is just one `Observer`. The core notifies it via `TranscriptChanged()` / `Quit()`; everything the UI needs it reads back through `chat.Chat`'s methods. Swap `ui` for your own front-end without changing the core.
 
+`ui` renders inline rather than taking over the screen. Each finished transcript line is
+printed above a live region holding the title bar, the input and the status line, so the
+conversation ends up in the terminal's own scrollback: selection, copying and wheel
+scrolling are the terminal's, and work as they do for any other command's output. The trade-off is that
+printed lines are never repainted — a `/theme` switch colors only what follows it, and
+resizing the window leaves earlier markdown wrapped at the old width. `/clear` resets the
+session but leaves the conversation in the scrollback, still readable.
+
+Keys: `Enter` sends, `Shift+Enter` (or `Alt+Enter` / `Ctrl+J`) adds a line, `↑` / `↓` walk
+prompt history, `Ctrl+C` quits.
+
 ## Recipes
 
 ### Add a custom slash command
