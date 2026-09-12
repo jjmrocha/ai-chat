@@ -533,7 +533,7 @@ func TestChatCompact(t *testing.T) {
 }
 
 func TestChatFeedback(t *testing.T) {
-	t.Run("ToolCalled appends activity with the call rendered", func(t *testing.T) {
+	t.Run("ToolCalled holds the call rendered, printing nothing yet", func(t *testing.T) {
 		// given
 		c := newChat("test")
 
@@ -541,11 +541,73 @@ func TestChatFeedback(t *testing.T) {
 		c.ToolCalled("fetch", map[string]any{"url": "http://a", "depth": float64(2)})
 
 		// then
+		assert.Empty(t, c.Transcript())
+		assert.Equal(t, `fetch(depth=2, url="http://a")`, c.PendingTool())
+	})
+
+	t.Run("ToolReturned appends one activity line carrying the call and its result", func(t *testing.T) {
+		// given
+		c := newChat("test")
+		c.ToolCalled("fetch", map[string]any{"url": "http://a"})
+
+		// when
+		c.ToolReturned("fetch", "ok", nil, 300*time.Millisecond)
+
+		// then
 		transcript := c.Transcript()
 		if assert.Len(t, transcript, 1) {
 			assert.Equal(t, command.Activity, transcript[0].Kind)
-			assert.Equal(t, `● fetch(depth=2, url="http://a")`, transcript[0].Text)
+			assert.Equal(t, "● fetch(url=\"http://a\")\n  ⎿ ok · 300ms", transcript[0].Text)
 		}
+		assert.Empty(t, c.PendingTool())
+	})
+
+	t.Run("ToolReturned reports a failed call", func(t *testing.T) {
+		// given
+		c := newChat("test")
+		c.ToolCalled("fetch", nil)
+
+		// when
+		c.ToolReturned("fetch", "", errors.New("refused"), 300*time.Millisecond)
+
+		// then
+		transcript := c.Transcript()
+		if assert.Len(t, transcript, 1) {
+			assert.Equal(t, "● fetch()\n  ⎿ ✗ refused · 300ms", transcript[0].Text)
+		}
+	})
+
+	t.Run("a turn that ends with a call in flight flushes it as unresolved", func(t *testing.T) {
+		// given: the agent starts a tool call and then fails the turn
+		var c *Chat
+		c = newTestChat(t, &mockedAgentBackend{
+			processFunc: func(context.Context, string) (*agent.Response, error) {
+				c.ToolCalled("fetch", nil)
+				return nil, errors.New("cancelled")
+			},
+		})
+
+		// when
+		c.Submit("hi")
+		require.Eventually(t, func() bool { return !c.Busy() }, time.Second, 5*time.Millisecond)
+
+		// then
+		transcript := c.Transcript()
+		require.Len(t, transcript, 3)
+		assert.Equal(t, command.Activity, transcript[1].Kind)
+		assert.Equal(t, "● fetch()\n  ⎿ (no result)", transcript[1].Text)
+		assert.Empty(t, c.PendingTool())
+	})
+
+	t.Run("ToolReturned prints nothing when no call is in flight", func(t *testing.T) {
+		// given
+		c := newChat("test")
+
+		// when
+		c.ToolReturned("fetch", "ok", nil, 300*time.Millisecond)
+
+		// then
+		assert.Empty(t, c.Transcript())
 	})
 
 	t.Run("ContextCompacted appends activity", func(t *testing.T) {
@@ -862,67 +924,85 @@ func TestFormatToolCall(t *testing.T) {
 			name:     "no arguments",
 			tool:     "repo_info",
 			args:     nil,
-			expected: "● repo_info()",
+			expected: "repo_info()",
 		},
 		{
 			name:     "empty arguments",
 			tool:     "repo_info",
 			args:     map[string]any{},
-			expected: "● repo_info()",
+			expected: "repo_info()",
 		},
 		{
 			name:     "quotes strings and prints numbers bare",
 			tool:     "lookup",
 			args:     map[string]any{"name": "", "age": float64(1)},
-			expected: `● lookup(age=1, name="")`,
+			expected: `lookup(age=1, name="")`,
 		},
 		{
 			name:     "sorts arguments by name",
 			tool:     "edit",
 			args:     map[string]any{"c": true, "a": float64(1), "b": "x"},
-			expected: `● edit(a=1, b="x", c=true)`,
+			expected: `edit(a=1, b="x", c=true)`,
 		},
 		{
 			name:     "prints a fractional number as written",
 			tool:     "sample",
 			args:     map[string]any{"ratio": 1.5},
-			expected: "● sample(ratio=1.5)",
+			expected: "sample(ratio=1.5)",
 		},
 		{
-			name:     "elides a long string",
+			name:     "reports the size of a long string",
 			tool:     "file_write",
 			args:     map[string]any{"path": "notes.md", "content": long},
-			expected: `● file_write(content: ..., path="notes.md")`,
+			expected: `file_write(content=<201 B>, path="notes.md")`,
 		},
 		{
 			name:     "keeps a string at the limit",
 			tool:     "file_write",
 			args:     map[string]any{"content": strings.Repeat("x", maxToolArgLen)},
-			expected: `● file_write(content="` + strings.Repeat("x", maxToolArgLen) + `")`,
+			expected: `file_write(content="` + strings.Repeat("x", maxToolArgLen) + `")`,
 		},
 		{
-			name:     "elides a nested object",
+			name:     "shows a nested object that fits",
 			tool:     "edit",
 			args:     map[string]any{"path": "a.md", "spec": map[string]any{"k": "v"}},
-			expected: `● edit(path="a.md", spec: ...)`,
+			expected: `edit(path="a.md", spec={"k":"v"})`,
 		},
 		{
-			name:     "elides a list",
+			name:     "reports the shape of an oversized object",
+			tool:     "index",
+			args:     map[string]any{"spec": map[string]any{"a": long, "b": long}},
+			expected: "index(spec={2 keys})",
+		},
+		{
+			name:     "says key, not keys, for a single field",
+			tool:     "index",
+			args:     map[string]any{"spec": map[string]any{"a": long}},
+			expected: "index(spec={1 key})",
+		},
+		{
+			name:     "shows a list that fits",
 			tool:     "batch",
 			args:     map[string]any{"items": []any{1, 2}, "dry": false},
-			expected: "● batch(dry=false, items: ...)",
+			expected: "batch(dry=false, items=[1,2])",
+		},
+		{
+			name:     "reports the length of an oversized list",
+			tool:     "batch",
+			args:     map[string]any{"items": []any{long, long}},
+			expected: "batch(items=[2])",
 		},
 		{
 			name:     "prints a null argument",
 			tool:     "search",
 			args:     map[string]any{"filter": nil},
-			expected: "● search(filter=null)",
+			expected: "search(filter=null)",
 		},
 		{
 			name:     "escapes a string with quotes and newlines",
 			tool:     "say",
 			args:     map[string]any{"text": "a\"b\nc"},
-			expected: `● say(text="a\"b\nc")`,
+			expected: `say(text="a\"b\nc")`,
 		},
 	}
 

@@ -7,8 +7,8 @@ var Catppuccin = Theme{
 	Footer:     "#6C7086",
 	Error:      "#F38BA8",
 	Info:       "#89B4FA",
-	Activity:   "#6C7086",
+	Activity:   "#75715E",
 	Rule:       "#45475A",
 	TurnSep:    "#45475A",
-	Telemetry:  "#6C7086",
+	Telemetry:  "#75715E",
 }

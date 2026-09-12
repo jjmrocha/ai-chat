@@ -20,6 +20,7 @@ type mockedChatCore struct {
 	busyFunc       func() bool
 	statusTextFunc func() string
 	queuedFunc     func() bool
+	pendingFunc    func() string
 	submitFunc     func(text string)
 }
 
@@ -58,6 +59,13 @@ func (m *mockedChatCore) Queued() bool {
 		return false
 	}
 	return m.queuedFunc()
+}
+
+func (m *mockedChatCore) PendingTool() string {
+	if m.pendingFunc == nil {
+		return ""
+	}
+	return m.pendingFunc()
 }
 
 func (m *mockedChatCore) Submit(text string) {
@@ -103,6 +111,49 @@ func TestRenderBlock(t *testing.T) {
 			assert.Contains(t, result, "payload")
 		})
 	}
+}
+
+func TestRenderActivityBlock(t *testing.T) {
+	t.Run("styles the response line apart from the call that produced it", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+		line := chat.Line{Kind: command.Activity, Text: "● file_read(path=\"a.go\")\n  ⎿ <4.1 KB> · 0.3s"}
+
+		// when
+		result := m.renderBlock(line)
+
+		// then
+		call, response, found := strings.Cut(result, "\n")
+		require.True(t, found, "the block keeps both lines")
+		assert.Contains(t, call, "file_read")
+		assert.Contains(t, response, "4.1 KB")
+		assert.NotEqual(t, styleOf(call), styleOf(response),
+			"the response reads dimmer than the call")
+	})
+
+	t.Run("leaves a single-line activity alone", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+		line := chat.Line{Kind: command.Activity, Text: "● context compacted"}
+
+		// when
+		result := m.renderBlock(line)
+
+		// then
+		assert.NotContains(t, result, "\n")
+		assert.Contains(t, result, "context compacted")
+	})
+}
+
+// styleOf returns the leading ANSI escape sequence of a rendered line, which is
+// what distinguishes one theme colour from another.
+func styleOf(line string) string {
+	_, rest, found := strings.Cut(line, "\x1b")
+	if !found {
+		return ""
+	}
+	seq, _, _ := strings.Cut(rest, "m")
+	return seq
 }
 
 func TestTitleBar(t *testing.T) {
@@ -703,6 +754,23 @@ func TestModelThinking(t *testing.T) {
 
 		// then
 		assert.Contains(t, result, "Thinking for 10s")
+	})
+
+	t.Run("the row names the tool in flight instead of the generic wait", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{
+			busyFunc:    func() bool { return true },
+			pendingFunc: func() string { return `file_read(path="a.go")` },
+		})
+		m.thinkingSince = time.Now().Add(-10 * time.Second)
+
+		// when
+		result := m.thinkingLine()
+
+		// then
+		assert.Contains(t, result, "file_read")
+		assert.Contains(t, result, "10s")
+		assert.NotContains(t, result, "Thinking for")
 	})
 
 	t.Run("the clock starts when a turn begins", func(t *testing.T) {

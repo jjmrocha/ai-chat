@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
@@ -47,13 +48,13 @@ func (c *Chat) StatusText() string { return c.statusFmt(c.Status()) }
 func defaultTelemetryFormatter(meta agent.Metadata) string {
 	var parts []string
 	if meta.ToolCalls > 0 {
-		parts = append(parts, fmt.Sprintf("%d tool calls", meta.ToolCalls))
+		parts = append(parts, plural(meta.ToolCalls, "tool call"))
 	}
 	if meta.LLMDuration > 0 {
-		parts = append(parts, fmt.Sprintf("%.1fs llm", meta.LLMDuration.Seconds()))
+		parts = append(parts, formatDuration(meta.LLMDuration)+" llm")
 	}
 	if meta.ToolDuration > 0 {
-		parts = append(parts, fmt.Sprintf("%.1fs tools", meta.ToolDuration.Seconds()))
+		parts = append(parts, formatDuration(meta.ToolDuration)+" tools")
 	}
 	if tok := tokenPart(meta); tok != "" {
 		parts = append(parts, tok)
@@ -123,4 +124,111 @@ func formatTokens(tokens int) string {
 	default:
 		return strconv.Itoa(tokens)
 	}
+}
+
+// formatBytes renders a size for display, in the largest unit that leaves a
+// whole part.
+func formatBytes(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("<%.1f MB>", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("<%.1f KB>", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("<%d B>", n)
+	}
+}
+
+const (
+	// maxToolResultLen caps the result text shown on a response line. It is
+	// larger than maxToolArgLen because the result owns a whole line, where an
+	// argument shares one with the rest of the call.
+	maxToolResultLen = 400
+)
+
+// formatToolResult renders the response line that closes a tool call: what the
+// call produced, and how long it took. A zero elapsed with no result and no
+// error is a call that never returned.
+func formatToolResult(result string, err error, elapsed time.Duration) string {
+	line := "  ⎿ " + toolOutcome(result, err, elapsed)
+	if elapsed > 0 {
+		line += " · " + formatDuration(elapsed)
+	}
+
+	return line
+}
+
+// formatDuration renders how long a call took, in whole milliseconds below a
+// second. Local tools routinely finish in a few of them, and reporting those as
+// "0.0s" would hide the timing this line exists to show.
+func formatDuration(d time.Duration) string {
+	switch {
+	case d >= time.Second:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	case d >= time.Millisecond:
+		return strconv.FormatInt(d.Milliseconds(), 10) + "ms"
+	default:
+		return "<1ms"
+	}
+}
+
+func toolOutcome(result string, err error, elapsed time.Duration) string {
+	switch {
+	case err != nil:
+		return "✗ " + truncate(stripControl(firstLine(err.Error())), maxToolResultLen)
+	case result != "":
+		return formatOutput(result)
+	case elapsed == 0:
+		return "(no result)"
+	default:
+		return "(empty)"
+	}
+}
+
+// formatOutput renders a tool's output: the text itself when it is a single
+// line within budget, and its size otherwise. It prints bare rather than
+// quoted, because output is not a literal. A multi-line result always reports
+// its size — the response is one line, and the tools return tagged text whose
+// shape this code has no business interpreting.
+func formatOutput(result string) string {
+	if len(result) > maxToolResultLen || strings.ContainsFunc(result, isControl) {
+		return formatBytes(len(result))
+	}
+
+	return result
+}
+
+// isControl reports whether r steers the terminal rather than printing on it.
+// Tool output is untrusted — a shell command's output, or whatever an MCP
+// server chose to send — and it reaches the terminal unescaped, so an escape
+// sequence left in it would move the cursor, clear the screen, or corrupt the
+// live region. Newline counts: a result spanning lines does not belong on one.
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f
+}
+
+// stripControl removes the characters isControl rejects, for text that is shown
+// rather than measured.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if isControl(r) {
+			return -1
+		}
+
+		return r
+	}, s)
+}
+
+func firstLine(s string) string {
+	head, _, _ := strings.Cut(s, "\n")
+
+	return head
+}
+
+func truncate(s string, budget int) string {
+	if len(s) <= budget {
+		return s
+	}
+
+	return s[:budget] + "…"
 }

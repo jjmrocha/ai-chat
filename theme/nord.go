@@ -7,8 +7,8 @@ var Nord = Theme{
 	Footer:     "#4C566A",
 	Error:      "#BF616A",
 	Info:       "#81A1C1",
-	Activity:   "#4C566A",
+	Activity:   "#75715E",
 	Rule:       "#3B4252",
 	TurnSep:    "#3B4252",
-	Telemetry:  "#4C566A",
+	Telemetry:  "#75715E",
 }

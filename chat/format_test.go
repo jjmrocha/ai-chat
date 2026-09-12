@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +62,32 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		assert.Equal(t, " 3 tool calls", result)
 	})
 
+	t.Run("a single tool call reads as one call", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{ToolCalls: 1}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, " 1 tool call", result)
+	})
+
+	t.Run("reports sub-second work in milliseconds", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{
+			ToolCalls:    2,
+			LLMDuration:  2200 * time.Millisecond,
+			ToolDuration: 4 * time.Millisecond,
+		}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, " 2 tool calls · 2.2s llm · 4ms tools", result)
+	})
+
 	t.Run("all fields", func(t *testing.T) {
 		// given
 		meta := agent.Metadata{
@@ -75,7 +103,7 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		result := defaultTelemetryFormatter(meta)
 
 		// then
-		assert.Equal(t, " 2 tool calls · 1.3s llm · 0.5s tools · ↑1.20K ↓412 tokens", result)
+		assert.Equal(t, " 2 tool calls · 1.3s llm · 500ms tools · ↑1.20K ↓412 tokens", result)
 	})
 
 	t.Run("input tokens only", func(t *testing.T) {
@@ -193,4 +221,102 @@ func TestDefaultStatusFormatter(t *testing.T) {
 		// then
 		assert.NotContains(t, result, "()")
 	})
+}
+
+func TestFormatToolResult(t *testing.T) {
+	long := strings.Repeat("x", maxToolResultLen+1)
+
+	testCases := []struct {
+		name     string
+		result   string
+		err      error
+		elapsed  time.Duration
+		expected string
+	}{
+		{
+			name:     "reports the error and not the result when the call failed",
+			result:   "ignored",
+			err:      errors.New("no such file"),
+			elapsed:  100 * time.Millisecond,
+			expected: "  ⎿ ✗ no such file · 100ms",
+		},
+		{
+			name:     "keeps only the error's first line",
+			err:      errors.New("no such file\nstack trace here"),
+			elapsed:  100 * time.Millisecond,
+			expected: "  ⎿ ✗ no such file · 100ms",
+		},
+		{
+			name:     "truncates a long error",
+			err:      errors.New(long),
+			elapsed:  100 * time.Millisecond,
+			expected: "  ⎿ ✗ " + strings.Repeat("x", maxToolResultLen) + "… · 100ms",
+		},
+		{
+			name:     "marks an empty result",
+			elapsed:  100 * time.Millisecond,
+			expected: "  ⎿ (empty) · 100ms",
+		},
+		{
+			name:     "shows a single line that fits, unquoted",
+			result:   "/Users/jrocha/SOURCES/GO/ai-chat",
+			elapsed:  100 * time.Millisecond,
+			expected: "  ⎿ /Users/jrocha/SOURCES/GO/ai-chat · 100ms",
+		},
+		{
+			name:     "reports the size of a single line that does not fit",
+			result:   long,
+			elapsed:  300 * time.Millisecond,
+			expected: "  ⎿ <401 B> · 300ms",
+		},
+		{
+			name:     "reports the size of a multi-line result even when it is small",
+			result:   "ok\nfine",
+			elapsed:  300 * time.Millisecond,
+			expected: "  ⎿ <7 B> · 300ms",
+		},
+		{
+			name:     "reports a sub-second call in milliseconds",
+			result:   "ok",
+			elapsed:  50 * time.Millisecond,
+			expected: "  ⎿ ok · 50ms",
+		},
+		{
+			name:     "reports a very fast call rather than rounding it to nothing",
+			result:   "ok",
+			elapsed:  200 * time.Microsecond,
+			expected: "  ⎿ ok · <1ms",
+		},
+		{
+			name:     "reports a long call in seconds",
+			result:   "ok",
+			elapsed:  12 * time.Second,
+			expected: "  ⎿ ok · 12.0s",
+		},
+		{
+			name:     "reports the size of a result carrying control characters",
+			result:   "ok\x1b[2Jgone",
+			elapsed:  300 * time.Millisecond,
+			expected: "  ⎿ <10 B> · 300ms",
+		},
+		{
+			name:     "strips control characters from an error",
+			err:      errors.New("refused \x1b[2J\x07now"),
+			elapsed:  300 * time.Millisecond,
+			expected: "  ⎿ ✗ refused [2Jnow · 300ms",
+		},
+		{
+			name:     "marks a call that never returned",
+			expected: "  ⎿ (no result)",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// when
+			result := formatToolResult(tc.result, tc.err, tc.elapsed)
+			// then
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }

@@ -95,6 +95,7 @@ type chatCore interface {
 	Busy() bool
 	StatusText() string
 	Queued() bool
+	PendingTool() string
 	Submit(text string)
 }
 
@@ -389,7 +390,7 @@ func (m model) renderBlock(ln chat.Line) string {
 	case command.Error:
 		return s.err.Render(ln.Text)
 	case command.Activity:
-		return s.activity.Render(ln.Text)
+		return m.renderActivity(ln.Text)
 	case command.Telemetry:
 		return s.turnSep.Render(m.hrule()) + "\n" + s.telemetry.Render(ln.Text)
 	case command.Reply:
@@ -397,6 +398,18 @@ func (m model) renderBlock(ln chat.Line) string {
 	default:
 		return ln.Text
 	}
+}
+
+// renderActivity styles a tool call and the response line that closes it apart,
+// so the results read dimmer than the calls that produced them. An activity
+// carrying no response — a compaction notice — is styled whole.
+func (m model) renderActivity(text string) string {
+	call, response, found := strings.Cut(text, "\n")
+	if !found {
+		return m.styles.activity.Render(text)
+	}
+
+	return m.styles.activity.Render(call) + "\n" + m.styles.telemetry.Render(response)
 }
 
 // trackThinking starts the wait clock when a turn begins and stops it when the
@@ -418,7 +431,13 @@ func (m model) thinkingLine() string {
 		return ""
 	}
 	elapsed := time.Since(m.thinkingSince).Truncate(time.Second)
-	return m.spinner.View() + m.styles.footer.Render(" Thinking for "+elapsed.String())
+
+	label := "Thinking for " + elapsed.String()
+	if pending := m.core.PendingTool(); pending != "" {
+		label = pending + " · " + elapsed.String()
+	}
+
+	return m.spinner.View() + m.styles.footer.Render(" "+label)
 }
 
 // placeholder is the prompt an empty input shows.

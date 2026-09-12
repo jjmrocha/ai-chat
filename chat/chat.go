@@ -62,8 +62,11 @@ type Chat struct {
 	observer   Observer
 	busy       bool
 	queue      []string
-	lastMeta   agent.Metadata
-	theme      theme.Theme
+	// pendingTool is the rendered request line of the tool call in flight, empty
+	// between calls. Tool calls run one at a time, so one is always enough.
+	pendingTool string
+	lastMeta    agent.Metadata
+	theme       theme.Theme
 }
 
 // New builds a Chat over ag and installs itself as the agent's feedback sink so
@@ -129,6 +132,15 @@ func (c *Chat) Busy() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.busy
+}
+
+// PendingTool returns the tool call in flight rendered for display, and empty
+// when none is running.
+func (c *Chat) PendingTool() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.pendingTool
 }
 
 // Queued reports whether input is waiting behind the turn in flight.
@@ -300,6 +312,11 @@ func (c *Chat) turn(ctx context.Context, text string) {
 	c.append(command.User, "❯ "+text)
 
 	resp, err := c.agent.Process(ctx, text)
+
+	// A turn can end with a call still in flight — a cancelled context, or an
+	// agent error raised before the tool returned. Print it rather than let it
+	// disappear along with the live region.
+	c.closeToolCall(formatToolResult("", nil, 0))
 
 	c.mu.Lock()
 	if err == nil && resp != nil {

@@ -10,5 +10,5 @@ var Default = Theme{
 	Activity:   "#A7F3D0",
 	Rule:       "#4A5568",
 	TurnSep:    "#4A5568",
-	Telemetry:  "#4A5568",
+	Telemetry:  "#75715E",
 }
