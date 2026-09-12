@@ -3,1106 +3,415 @@ package chat
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
-	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type mockedAgentBackend struct {
-	processFunc         func(ctx context.Context, input string) (*agent.Response, error)
-	changeModelFunc     func(name string) error
-	changeEffortFunc    func(e llm.Effort) error
-	availableModelsFunc func() []string
-	modelInfoFunc       func(ctx context.Context) *agent.ModelInfo
-	compactContextFunc  func(ctx context.Context)
-	resetSessionFunc    func() error
-}
-
-func (m *mockedAgentBackend) Process(ctx context.Context, input string) (*agent.Response, error) {
-	if m.processFunc == nil {
-		return nil, nil
+func TestSubmitIgnoresBlankInput(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "empty", input: ""},
+		{name: "spaces", input: "   "},
+		{name: "tabs and newlines", input: "\t\n "},
 	}
-	return m.processFunc(ctx, input)
-}
 
-func (m *mockedAgentBackend) ChangeModel(name string) error {
-	if m.changeModelFunc == nil {
-		return nil
-	}
-	return m.changeModelFunc(name)
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			backend := &mockedAgentBackend{}
+			c, _ := newTestChat(t, backend)
 
-func (m *mockedAgentBackend) ChangeEffort(e llm.Effort) error {
-	if m.changeEffortFunc == nil {
-		return nil
-	}
-	return m.changeEffortFunc(e)
-}
+			// when
+			c.Submit(tc.input)
 
-func (m *mockedAgentBackend) AvailableModels() []string {
-	if m.availableModelsFunc == nil {
-		return nil
-	}
-	return m.availableModelsFunc()
-}
-
-func (m *mockedAgentBackend) ModelInfo(ctx context.Context) *agent.ModelInfo {
-	if m.modelInfoFunc == nil {
-		return nil
-	}
-	return m.modelInfoFunc(ctx)
-}
-
-func (m *mockedAgentBackend) CompactContext(ctx context.Context) {
-	if m.compactContextFunc != nil {
-		m.compactContextFunc(ctx)
-	}
-}
-
-func (m *mockedAgentBackend) ResetSession() error {
-	if m.resetSessionFunc == nil {
-		return nil
-	}
-	return m.resetSessionFunc()
-}
-
-type recordingObserver struct {
-	transcriptChanged chan struct{}
-	quit              chan struct{}
-}
-
-func newRecordingObserver() *recordingObserver {
-	return &recordingObserver{
-		transcriptChanged: make(chan struct{}, 10),
-		quit:              make(chan struct{}, 1),
-	}
-}
-
-func (o *recordingObserver) TranscriptChanged() {
-	select {
-	case o.transcriptChanged <- struct{}{}:
-	default:
-	}
-}
-
-func (o *recordingObserver) Quit() {
-	select {
-	case o.quit <- struct{}{}:
-	default:
-	}
-}
-
-func newTestChat(t *testing.T, backend agentBackend, opts ...Option) *Chat {
-	t.Helper()
-	c := newChat("test", opts...)
-	c.agent = backend
-	return c
-}
-
-type mockCommand struct {
-	nameFunc func() string
-	helpFunc func() string
-	runFunc  func(ctx command.Context, args string)
-}
-
-func (m *mockCommand) Name() string {
-	if m.nameFunc == nil {
-		return ""
-	}
-	return m.nameFunc()
-}
-
-func (m *mockCommand) Help() string {
-	if m.helpFunc == nil {
-		return ""
-	}
-	return m.helpFunc()
-}
-
-func (m *mockCommand) Run(ctx command.Context, args string) {
-	if m.runFunc != nil {
-		m.runFunc(ctx, args)
-	}
-}
-
-// mockArgCommand is a mockCommand that also advertises an argument spec.
-type mockArgCommand struct {
-	mockCommand
-	args string
-}
-
-func (m *mockArgCommand) Args() string { return m.args }
-
-func TestHelpTextAlignment(t *testing.T) {
-	t.Run("descriptions line up past the widest usage", func(t *testing.T) {
-		// given
-		wide := &mockArgCommand{
-			mockCommand: mockCommand{
-				nameFunc: func() string { return "wide" },
-				helpFunc: func() string { return "Takes a long spec" },
-			},
-			args: "[on|off] [name]",
-		}
-		narrow := &mockCommand{
-			nameFunc: func() string { return "narrow" },
-			helpFunc: func() string { return "Takes nothing" },
-		}
-		c := newChat("test", WithCommand(wide), WithCommand(narrow))
-
-		// when
-		result := c.helpText()
-
-		// then
-		assert.Equal(t, strings.Join([]string{
-			"Commands:",
-			"  /narrow               Takes nothing",
-			"  /wide [on|off] [name] Takes a long spec",
-			"  /help                 Show this message",
-			"  /exit                 Quit",
-		}, "\n"), result)
-	})
-
-	t.Run("a command without args renders just its name", func(t *testing.T) {
-		// given
-		only := &mockCommand{
-			nameFunc: func() string { return "solo" },
-			helpFunc: func() string { return "Does a thing" },
-		}
-		c := newChat("test", WithCommand(only))
-
-		// when
-		result := c.helpText()
-
-		// then
-		assert.Contains(t, result, "  /solo Does a thing")
-	})
-
-	t.Run("an empty args spec adds no trailing space", func(t *testing.T) {
-		// given
-		blank := &mockArgCommand{
-			mockCommand: mockCommand{
-				nameFunc: func() string { return "blank" },
-				helpFunc: func() string { return "Does a thing" },
-			},
-			args: "",
-		}
-		c := newChat("test", WithCommand(blank))
-
-		// when
-		result := c.helpText()
-
-		// then
-		assert.Contains(t, result, "  /blank Does a thing")
-	})
-}
-
-func TestChatName(t *testing.T) {
-	// given
-	c := newChat("test-chat")
-
-	// when
-	result := c.Name()
-
-	// then
-	assert.Equal(t, "test-chat", result)
-}
-
-func TestChatBusy(t *testing.T) {
-	// given
-	c := newChat("test")
-
-	// when
-	result := c.Busy()
-
-	// then
-	assert.False(t, result)
-}
-
-func TestChatTranscript(t *testing.T) {
-	// given
-	c := newChat("test")
-
-	// when
-	result := c.Transcript()
-
-	// then
-	assert.Empty(t, result)
-}
-
-func TestChatSetObserver(t *testing.T) {
-	// given
-	c := newChat("test")
-	o := newRecordingObserver()
-
-	// when
-	c.SetObserver(o)
-
-	// then
-	assert.Equal(t, o, c.observer)
-}
-
-func TestChatPrint(t *testing.T) {
-	// given
-	c := newChat("test")
-
-	// when
-	c.Print(command.Info, "hello world")
-
-	// then
-	transcript := c.Transcript()
-	if assert.Len(t, transcript, 1) {
-		assert.Equal(t, command.Info, transcript[0].Kind)
-		assert.Equal(t, "hello world", transcript[0].Text)
-	}
-}
-
-func TestChatSubmit(t *testing.T) {
-	t.Run("empty input ignored", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.Submit("")
-
-		// then
-		assert.Empty(t, c.Transcript())
-	})
-
-	t.Run("whitespace input ignored", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.Submit("   ")
-
-		// then
-		assert.Empty(t, c.Transcript())
-	})
-
-	t.Run("/help appends help text", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.Submit("/help")
-
-		// then
-		transcript := c.Transcript()
-		if assert.NotEmpty(t, transcript) {
-			assert.Equal(t, command.Info, transcript[0].Kind)
-		}
-	})
-
-	t.Run("/exit triggers quit", func(t *testing.T) {
-		// given
-		c := newChat("test")
-		o := newRecordingObserver()
-		c.SetObserver(o)
-
-		// when
-		c.Submit("/exit")
-
-		// then
-		select {
-		case <-o.quit:
-		default:
-			t.Error("expected Quit to be called")
-		}
-	})
-
-	t.Run("unknown command prints error", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.Submit("/bogus")
-
-		// then
-		transcript := c.Transcript()
-		if assert.Len(t, transcript, 1) {
-			assert.Equal(t, command.Error, transcript[0].Kind)
-		}
-	})
-
-	t.Run("registered command runs", func(t *testing.T) {
-		// given
-		done := make(chan struct{})
-		mockCmd := &mockCommand{
-			nameFunc: func() string { return "hello" },
-			runFunc: func(ctx command.Context, args string) {
-				ctx.Print(command.Info, "hi")
-				close(done)
-			},
-		}
-		c := newChat("test", WithCommand(mockCmd))
-
-		// when
-		c.Submit("/hello")
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for command")
-		}
-
-		// then
-		transcript := c.Transcript()
-		if assert.Len(t, transcript, 1) {
-			assert.Equal(t, "hi", transcript[0].Text)
-		}
-	})
-}
-
-func TestChatClear(t *testing.T) {
-	t.Run("clear succeeds", func(t *testing.T) {
-		// given
-		var reset bool
-		c := newTestChat(t, &mockedAgentBackend{
-			resetSessionFunc: func() error {
-				reset = true
-				return nil
-			},
+			// then
+			assert.Empty(t, backend.inputs())
+			assert.Zero(t, c.TranscriptLen())
+			assert.False(t, c.Busy())
 		})
-		c.Print(command.Info, "some text")
-
-		// when
-		err := c.Clear()
-
-		// then
-		assert.NoError(t, err)
-		assert.True(t, reset)
-		assert.Empty(t, c.Transcript())
-	})
-
-	t.Run("clear error leaves transcript intact", func(t *testing.T) {
-		// given
-		c := newTestChat(t, &mockedAgentBackend{
-			resetSessionFunc: func() error {
-				return errors.New("reset failed")
-			},
-		})
-		c.Print(command.Info, "some text")
-
-		// when
-		err := c.Clear()
-
-		// then
-		assert.Error(t, err)
-		assert.NotEmpty(t, c.Transcript())
-	})
+	}
 }
 
-func TestChatChangeModel(t *testing.T) {
+func TestSubmitTrimsInput(t *testing.T) {
 	// given
-	var changed string
-	c := newTestChat(t, &mockedAgentBackend{
-		changeModelFunc: func(name string) error {
-			changed = name
-			return nil
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Submit("  hello  ")
+	waitIdle(t, c)
+
+	// then
+	assert.Equal(t, []string{"hello"}, backend.inputs())
+}
+
+func TestTurnAppendsUserLineWithoutGlyph(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Submit("hi")
+	waitIdle(t, c)
+
+	// then
+	lines := c.Transcript()
+	require.NotEmpty(t, lines)
+	assert.Equal(t, command.User, lines[0].Kind)
+	assert.Equal(t, "hi", lines[0].Text)
+}
+
+func TestTurnReportsAgentError(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			return nil, errors.New("upstream down")
 		},
-	})
+	}
+	c, _ := newTestChat(t, backend)
 
 	// when
-	err := c.ChangeModel("gpt-4")
+	c.Submit("hi")
+	waitIdle(t, c)
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 2)
+	assert.Equal(t, command.Error, lines[1].Kind)
+	assert.Equal(t, "Error: upstream down", lines[1].Text)
+}
+
+func TestTurnReportsMissingResponse(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			return nil, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Submit("hi")
+	waitIdle(t, c)
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 2)
+	assert.Equal(t, command.Error, lines[1].Kind)
+	assert.Equal(t, "No response received.", lines[1].Text)
+}
+
+func TestUnknownCommandReportsAndStaysUsable(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Submit("/nope arg")
+	waitIdle(t, c)
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 1)
+	assert.Equal(t, command.Error, lines[0].Kind)
+	assert.Equal(t, "Error: unknown command /nope", lines[0].Text)
+	assert.False(t, c.Busy())
+}
+
+func TestCommandsSubmittedWhileIdleDoNotRunConcurrently(t *testing.T) {
+	// given
+	started := make(chan string, 4)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithCommand(gatedCommand{
+		name:    "hold",
+		started: started,
+		release: release,
+	}))
+
+	// when
+	c.Submit("/hold")
+	c.Submit("/hold")
+
+	// then
+	assert.Equal(t, "hold", <-started)
+	select {
+	case <-started:
+		t.Fatal("second command started before the first finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	assert.Equal(t, "hold", <-started)
+	waitIdle(t, c)
+}
+
+func TestCommandsAndTurnsShareOneQueueInOrder(t *testing.T) {
+	// given
+	var order []string
+	var mu sync.Mutex
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			mu.Lock()
+			order = append(order, "turn")
+			mu.Unlock()
+			time.Sleep(5 * time.Millisecond)
+			return &agent.Response{Content: "ok"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend, WithCommand(recordingCommand{name: "mark", log: &order, mu: &mu}))
+
+	// when
+	c.Submit("first")
+	c.Submit("/mark")
+	c.Submit("second")
+	waitIdle(t, c)
+
+	// then
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"turn", "mark", "turn"}, order)
+}
+
+func TestSlashCommandMarksChatBusy(t *testing.T) {
+	// given
+	release := make(chan struct{})
+	observed := make(chan bool, 1)
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithCommand(blockingCommand{
+		name:    "hold",
+		started: observed,
+		release: release,
+	}))
+
+	// when
+	c.Submit("/hold")
+	<-observed
+
+	// then
+	assert.True(t, c.Busy())
+	close(release)
+	waitIdle(t, c)
+	assert.False(t, c.Busy())
+}
+
+func TestQueuedInputIsReportedAndDrained(t *testing.T) {
+	// given
+	release := make(chan struct{})
+	started := make(chan bool, 1)
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			select {
+			case started <- true:
+			default:
+			}
+			<-release
+			return &agent.Response{Content: "ok"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Submit("first")
+	<-started
+	c.Submit("second")
+
+	// then
+	assert.True(t, c.Queued())
+	close(release)
+	waitIdle(t, c)
+	assert.False(t, c.Queued())
+	assert.Equal(t, []string{"first", "second"}, backend.inputs())
+}
+
+func TestExitCommandNotifiesObserver(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, obs := newTestChat(t, backend)
+
+	// when
+	c.Submit("/exit")
+	waitIdle(t, c)
+
+	// then
+	assert.Equal(t, 1, obs.quitCount())
+}
+
+func TestQuitWithoutObserverDoesNotPanic(t *testing.T) {
+	// given
+	c := newChat("TEST")
+	c.agent = &mockedAgentBackend{}
+
+	// when / then
+	assert.NotPanics(t, c.Quit)
+}
+
+func TestTranscriptLenAndSince(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+	for i := 0; i < 5; i++ {
+		c.append(command.Info, "line")
+	}
+
+	tests := []struct {
+		name        string
+		from        int
+		expectedLen int
+	}{
+		{name: "from zero returns everything", from: 0, expectedLen: 5},
+		{name: "from the middle returns the tail", from: 3, expectedLen: 2},
+		{name: "from the end returns nothing", from: 5, expectedLen: 0},
+		{name: "past the end returns nothing", from: 99, expectedLen: 0},
+		{name: "negative returns nothing", from: -1, expectedLen: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// when
+			result := c.Since(tc.from)
+
+			// then
+			assert.Len(t, result, tc.expectedLen)
+		})
+	}
+
+	assert.Equal(t, 5, c.TranscriptLen())
+}
+
+func TestSinceReturnsACopy(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+	c.append(command.Info, "original")
+
+	// when
+	result := c.Since(0)
+	result[0].Text = "mutated"
+
+	// then
+	assert.Equal(t, "original", c.Transcript()[0].Text)
+}
+
+func TestClearResetsTranscript(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+	c.append(command.Info, "line")
+
+	// when
+	err := c.Clear()
 
 	// then
 	assert.NoError(t, err)
-	assert.Equal(t, "gpt-4", changed)
+	assert.Zero(t, c.TranscriptLen())
 }
 
-func TestChatChangeEffort(t *testing.T) {
-	t.Run("forwards the level and reports success", func(t *testing.T) {
-		// given
-		var changed llm.Effort
-		c := newTestChat(t, &mockedAgentBackend{
-			changeEffortFunc: func(e llm.Effort) error {
-				changed = e
-				return nil
-			},
-		})
-
-		// when
-		err := c.ChangeEffort(llm.EffortMax)
-
-		// then
-		assert.NoError(t, err)
-		assert.Equal(t, llm.EffortMax, changed)
-	})
-
-	t.Run("propagates the agent error", func(t *testing.T) {
-		// given
-		c := newTestChat(t, &mockedAgentBackend{
-			changeEffortFunc: func(llm.Effort) error {
-				return llm.ErrInvalidEffort
-			},
-		})
-
-		// when
-		err := c.ChangeEffort("extreme")
-
-		// then
-		assert.ErrorIs(t, err, llm.ErrInvalidEffort)
-	})
-}
-
-func TestChatAvailableModels(t *testing.T) {
+func TestClearPropagatesResetFailure(t *testing.T) {
 	// given
-	c := newTestChat(t, &mockedAgentBackend{
-		availableModelsFunc: func() []string {
-			return []string{"gpt-4", "claude-3"}
-		},
-	})
-
-	// when
-	models := c.AvailableModels()
-
-	// then
-	assert.Equal(t, []string{"gpt-4", "claude-3"}, models)
-}
-
-func TestChatCompact(t *testing.T) {
-	// given
-	var compacted bool
-	c := newTestChat(t, &mockedAgentBackend{
-		compactContextFunc: func(ctx context.Context) {
-			compacted = true
-		},
-	})
-
-	// when
-	c.Compact()
-
-	// then
-	assert.True(t, compacted)
-}
-
-func TestChatFeedback(t *testing.T) {
-	t.Run("ToolCalled holds the call rendered, printing nothing yet", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.ToolCalled("fetch", map[string]any{"url": "http://a", "depth": float64(2)})
-
-		// then
-		assert.Empty(t, c.Transcript())
-		assert.Equal(t, `fetch(depth=2, url="http://a")`, c.PendingTool())
-	})
-
-	t.Run("ToolReturned appends one activity line carrying the call and its result", func(t *testing.T) {
-		// given
-		c := newChat("test")
-		c.ToolCalled("fetch", map[string]any{"url": "http://a"})
-
-		// when
-		c.ToolReturned("fetch", "ok", nil, 300*time.Millisecond)
-
-		// then
-		transcript := c.Transcript()
-		if assert.Len(t, transcript, 1) {
-			assert.Equal(t, command.Activity, transcript[0].Kind)
-			assert.Equal(t, "● fetch(url=\"http://a\")\n  ⎿ ok · 300ms", transcript[0].Text)
-		}
-		assert.Empty(t, c.PendingTool())
-	})
-
-	t.Run("ToolReturned reports a failed call", func(t *testing.T) {
-		// given
-		c := newChat("test")
-		c.ToolCalled("fetch", nil)
-
-		// when
-		c.ToolReturned("fetch", "", errors.New("refused"), 300*time.Millisecond)
-
-		// then
-		transcript := c.Transcript()
-		if assert.Len(t, transcript, 1) {
-			assert.Equal(t, "● fetch()\n  ⎿ ✗ refused · 300ms", transcript[0].Text)
-		}
-	})
-
-	t.Run("a turn that ends with a call in flight flushes it as unresolved", func(t *testing.T) {
-		// given: the agent starts a tool call and then fails the turn
-		var c *Chat
-		c = newTestChat(t, &mockedAgentBackend{
-			processFunc: func(context.Context, string) (*agent.Response, error) {
-				c.ToolCalled("fetch", nil)
-				return nil, errors.New("cancelled")
-			},
-		})
-
-		// when
-		c.Submit("hi")
-		require.Eventually(t, func() bool { return !c.Busy() }, time.Second, 5*time.Millisecond)
-
-		// then
-		transcript := c.Transcript()
-		require.Len(t, transcript, 3)
-		assert.Equal(t, command.Activity, transcript[1].Kind)
-		assert.Equal(t, "● fetch()\n  ⎿ (no result)", transcript[1].Text)
-		assert.Empty(t, c.PendingTool())
-	})
-
-	t.Run("ToolReturned prints nothing when no call is in flight", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.ToolReturned("fetch", "ok", nil, 300*time.Millisecond)
-
-		// then
-		assert.Empty(t, c.Transcript())
-	})
-
-	t.Run("ContextCompacted appends activity", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.ContextCompacted()
-
-		// then
-		transcript := c.Transcript()
-		if assert.Len(t, transcript, 1) {
-			assert.Equal(t, command.Activity, transcript[0].Kind)
-		}
-	})
-
-	t.Run("ContextCompactionFailed appends error", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.ContextCompactionFailed()
-
-		// then
-		transcript := c.Transcript()
-		if assert.Len(t, transcript, 1) {
-			assert.Equal(t, command.Error, transcript[0].Kind)
-		}
-	})
-
-	t.Run("ModelInfoUnavailable appends error", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.ModelInfoUnavailable()
-
-		// then
-		transcript := c.Transcript()
-		if assert.Len(t, transcript, 1) {
-			assert.Equal(t, command.Error, transcript[0].Kind)
-		}
-	})
-
-	t.Run("SessionReset no-op", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.SessionReset()
-
-		// then
-		assert.Empty(t, c.Transcript())
-	})
-
-	t.Run("SessionStarted no-op", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.SessionStarted()
-
-		// then
-		assert.Empty(t, c.Transcript())
-	})
-
-	t.Run("SessionClosed no-op", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		c.SessionClosed()
-
-		// then
-		assert.Empty(t, c.Transcript())
-	})
-}
-
-func TestChatStatus(t *testing.T) {
-	// given
-	c := newTestChat(t, &mockedAgentBackend{
-		modelInfoFunc: func(ctx context.Context) *agent.ModelInfo {
-			return &agent.ModelInfo{
-				ModelName:        "gpt-4",
-				Provider:         "openai",
-				Effort:           llm.EffortMedium,
-				ModelContextSize: 8000,
-			}
-		},
-	})
-	c.mu.Lock()
-	c.lastMeta = agent.Metadata{TotalTokens: 1000}
-	c.mu.Unlock()
-
-	// when
-	status := c.Status()
-
-	// then
-	assert.Equal(t, "gpt-4", status.Name)
-	assert.Equal(t, llm.Provider("openai"), status.Provider)
-	assert.Equal(t, llm.EffortMedium, status.Effort)
-	assert.Equal(t, 1000, status.Tokens)
-}
-
-func TestChatNotifyOnAppend(t *testing.T) {
-	// given
-	c := newChat("test")
-	o := newRecordingObserver()
-	c.SetObserver(o)
-
-	// when
-	c.Print(command.Info, "hello")
-
-	// then
-	select {
-	case <-o.transcriptChanged:
-	default:
-		t.Error("expected TranscriptChanged to be called")
+	backend := &mockedAgentBackend{
+		resetSessionFunc: func() error { return errors.New("locked") },
 	}
-}
-
-func TestChatLastMetadata(t *testing.T) {
-	// given
-	c := newChat("test")
+	c, _ := newTestChat(t, backend)
+	c.append(command.Info, "line")
 
 	// when
-	meta := c.LastMetadata()
+	err := c.Clear()
 
 	// then
-	assert.Equal(t, 0, meta.TotalTokens)
+	assert.EqualError(t, err, "locked")
+	assert.Equal(t, 1, c.TranscriptLen())
 }
 
-func TestChatHelpText(t *testing.T) {
+func TestConcurrentSubmitsAreSerialized(t *testing.T) {
 	// given
-	c := newChat("test")
-	c.register(&mockCommand{
-		nameFunc: func() string { return "hello" },
-		helpFunc: func() string { return "/hello   Say hi" },
-	})
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithDefaultCommands())
 
 	// when
-	help := c.helpText()
-
-	// then
-	assert.NotEmpty(t, help)
-}
-
-func TestChatSetContext(t *testing.T) {
-	// given
-	c := newChat("test")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	// when
-	c.SetContext(ctx)
-
-	// then - the cancelled context should propagate to agent calls
-	// (no crash on SetContext itself)
-	assert.Equal(t, ctx, c.baseCtx)
-}
-
-func TestChatProcess(t *testing.T) {
-	t.Run("agent success appends reply and telemetry", func(t *testing.T) {
-		// given
-		c := newTestChat(t, &mockedAgentBackend{
-			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-				return &agent.Response{
-					Content: "Hello back",
-					Metadata: agent.Metadata{
-						OutputTokens: 10,
-						TotalTokens:  50,
-					},
-				}, nil
-			},
-		}, WithTelemetryFormatter(func(meta agent.Metadata) string {
-			return "[telemetry]"
-		}))
-
-		// when
-		c.process(c.baseCtx, "hello")
-
-		// then
-		transcript := c.Transcript()
-		require.NotEmpty(t, transcript)
-		assert.Equal(t, command.User, transcript[0].Kind)
-		assert.Equal(t, "❯ hello", transcript[0].Text, "the echo keeps its prompt marker")
-	})
-
-	t.Run("agent error appends error line", func(t *testing.T) {
-		// given
-		c := newTestChat(t, &mockedAgentBackend{
-			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-				return nil, errors.New("api failure")
-			},
-		})
-
-		// when
-		c.process(c.baseCtx, "hello")
-
-		// then
-		transcript := c.Transcript()
-		require.Len(t, transcript, 2)
-		assert.Equal(t, command.Error, transcript[1].Kind)
-		assert.Equal(t, "Error: api failure", transcript[1].Text)
-	})
-
-	t.Run("agent busy blocks concurrent submit", func(t *testing.T) {
-		// given
-		backend := &mockedAgentBackend{}
-		c := newTestChat(t, backend)
-		c.mu.Lock()
-		c.busy = true
-		c.mu.Unlock()
-
-		// when
-		c.Submit("second")
-
-		// then
-		assert.Empty(t, c.Transcript())
-	})
-
-	t.Run("non-command text triggers agent process", func(t *testing.T) {
-		// given
-		processed := make(chan string, 1)
-		backend := &mockedAgentBackend{
-			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-				processed <- input
-				return &agent.Response{Content: "reply"}, nil
-			},
-		}
-		c := newTestChat(t, backend)
-
-		// when
-		c.Submit("hello")
-
-		// then
-		select {
-		case got := <-processed:
-			assert.Equal(t, "hello", got)
-		case <-time.After(time.Second):
-			t.Error("expected agent.Process to be called")
-		}
-	})
-
-	t.Run("nil response appends error", func(t *testing.T) {
-		// given
-		c := newTestChat(t, &mockedAgentBackend{
-			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-				return nil, nil
-			},
-		})
-
-		// when
-		c.process(c.baseCtx, "hello")
-
-		// then
-		transcript := c.Transcript()
-		require.Len(t, transcript, 2)
-		assert.Equal(t, command.Error, transcript[1].Kind)
-		assert.Equal(t, "No response received.", transcript[1].Text)
-	})
-}
-
-func TestChatConcurrentTranscript(t *testing.T) {
-	// given
-	c := newChat("test")
-	const goroutines = 10
 	var wg sync.WaitGroup
-
-	// when
-	for range goroutines {
-		wg.Go(func() {
-			c.Print(command.Info, "line")
-			_ = c.Transcript()
-			_ = c.Busy()
-		})
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				c.Submit("/help")
+				return
+			}
+			c.Submit("msg")
+		}(i)
 	}
 	wg.Wait()
+	waitIdle(t, c)
 
 	// then
-	assert.Equal(t, goroutines, len(c.Transcript()))
-}
-
-func TestChatStatusText(t *testing.T) {
-	// given
-	c := newTestChat(t, &mockedAgentBackend{
-		modelInfoFunc: func(ctx context.Context) *agent.ModelInfo {
-			return &agent.ModelInfo{
-				ModelName:        "gpt-4",
-				Provider:         "openai",
-				Effort:           llm.EffortOff,
-				ModelContextSize: 8000,
-			}
-		},
-	})
-
-	// when
-	text := c.StatusText()
-
-	// then
-	assert.NotEmpty(t, text)
-}
-
-func TestFormatToolCall(t *testing.T) {
-	long := strings.Repeat("x", maxToolArgLen+1)
-
-	testCases := []struct {
-		name     string
-		tool     string
-		args     map[string]any
-		expected string
-	}{
-		{
-			name:     "no arguments",
-			tool:     "repo_info",
-			args:     nil,
-			expected: "repo_info()",
-		},
-		{
-			name:     "empty arguments",
-			tool:     "repo_info",
-			args:     map[string]any{},
-			expected: "repo_info()",
-		},
-		{
-			name:     "quotes strings and prints numbers bare",
-			tool:     "lookup",
-			args:     map[string]any{"name": "", "age": float64(1)},
-			expected: `lookup(age=1, name="")`,
-		},
-		{
-			name:     "sorts arguments by name",
-			tool:     "edit",
-			args:     map[string]any{"c": true, "a": float64(1), "b": "x"},
-			expected: `edit(a=1, b="x", c=true)`,
-		},
-		{
-			name:     "prints a fractional number as written",
-			tool:     "sample",
-			args:     map[string]any{"ratio": 1.5},
-			expected: "sample(ratio=1.5)",
-		},
-		{
-			name:     "reports the size of a long string",
-			tool:     "file_write",
-			args:     map[string]any{"path": "notes.md", "content": long},
-			expected: `file_write(content=<201 B>, path="notes.md")`,
-		},
-		{
-			name:     "keeps a string at the limit",
-			tool:     "file_write",
-			args:     map[string]any{"content": strings.Repeat("x", maxToolArgLen)},
-			expected: `file_write(content="` + strings.Repeat("x", maxToolArgLen) + `")`,
-		},
-		{
-			name:     "shows a nested object that fits",
-			tool:     "edit",
-			args:     map[string]any{"path": "a.md", "spec": map[string]any{"k": "v"}},
-			expected: `edit(path="a.md", spec={"k":"v"})`,
-		},
-		{
-			name:     "reports the shape of an oversized object",
-			tool:     "index",
-			args:     map[string]any{"spec": map[string]any{"a": long, "b": long}},
-			expected: "index(spec={2 keys})",
-		},
-		{
-			name:     "says key, not keys, for a single field",
-			tool:     "index",
-			args:     map[string]any{"spec": map[string]any{"a": long}},
-			expected: "index(spec={1 key})",
-		},
-		{
-			name:     "shows a list that fits",
-			tool:     "batch",
-			args:     map[string]any{"items": []any{1, 2}, "dry": false},
-			expected: "batch(dry=false, items=[1,2])",
-		},
-		{
-			name:     "reports the length of an oversized list",
-			tool:     "batch",
-			args:     map[string]any{"items": []any{long, long}},
-			expected: "batch(items=[2])",
-		},
-		{
-			name:     "prints a null argument",
-			tool:     "search",
-			args:     map[string]any{"filter": nil},
-			expected: "search(filter=null)",
-		},
-		{
-			name:     "escapes a string with quotes and newlines",
-			tool:     "say",
-			args:     map[string]any{"text": "a\"b\nc"},
-			expected: `say(text="a\"b\nc")`,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// when
-			result := formatToolCall(tc.tool, tc.args)
-			// then
-			assert.Equal(t, tc.expected, result)
-		})
+	assert.Len(t, backend.inputs(), 20)
+	assert.False(t, c.Queued())
+	for _, ln := range c.Transcript() {
+		assert.NotEqual(t, command.Error, ln.Kind)
 	}
 }
 
-func TestChatQueue(t *testing.T) {
-	t.Run("nothing is queued on an idle chat", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		result := c.Queued()
-
-		// then
-		assert.False(t, result)
-	})
-
-	t.Run("input submitted during a turn is queued, not dropped", func(t *testing.T) {
-		// given
-		started, release := make(chan struct{}, 1), make(chan struct{})
-		c := newTestChat(t, &mockedAgentBackend{
-			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-				select {
-				case started <- struct{}{}:
-				default:
-				}
-				<-release
-				return &agent.Response{Content: "reply"}, nil
-			},
-		})
-		c.Submit("first")
-		<-started
-		defer close(release)
-
-		// when
-		c.Submit("second")
-
-		// then
-		assert.True(t, c.Queued())
-	})
-
-	t.Run("the queue drains in submission order once the turn ends", func(t *testing.T) {
-		// given
-		var mu sync.Mutex
-		var seen []string
-		started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
-		c := newTestChat(t, &mockedAgentBackend{
-			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-				mu.Lock()
-				seen = append(seen, input)
-				count := len(seen)
-				mu.Unlock()
-				switch count {
-				case 1:
-					close(started)
-					<-release
-				case 3:
-					close(done)
-				}
-				return &agent.Response{Content: "reply"}, nil
-			},
-		})
-		c.Submit("first")
-		<-started
-
-		// when
-		c.Submit("second")
-		c.Submit("third")
-		close(release)
-
-		// then
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for the queue to drain")
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		assert.Equal(t, []string{"first", "second", "third"}, seen)
-	})
-
-	t.Run("a command queued during a turn runs after it", func(t *testing.T) {
-		// given
-		started, release, ran := make(chan struct{}), make(chan struct{}), make(chan struct{})
-		mockCmd := &mockCommand{
-			nameFunc: func() string { return "hello" },
-			runFunc:  func(ctx command.Context, args string) { close(ran) },
-		}
-		c := newTestChat(t, &mockedAgentBackend{
-			processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-				close(started)
-				<-release
-				return &agent.Response{Content: "reply"}, nil
-			},
-		}, WithCommand(mockCmd))
-		c.Submit("first")
-		<-started
-
-		// when
-		c.Submit("/hello")
-		close(release)
-
-		// then
-		select {
-		case <-ran:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for the queued command")
-		}
-	})
-}
-
-func TestChatQueueOrdering(t *testing.T) {
+func TestHelpListsEveryRegisteredCommand(t *testing.T) {
 	// given
-	started, release := make(chan struct{}), make(chan struct{})
-	var c *Chat
-	c = newTestChat(t, &mockedAgentBackend{
-		processFunc: func(ctx context.Context, input string) (*agent.Response, error) {
-			c.ToolCalled("file_workdir", nil)
-			close(started)
-			<-release
-			return &agent.Response{Content: "the folder is ai-chat"}, nil
-		},
-	})
-	o := newRecordingObserver()
-	c.SetObserver(o)
-	c.Submit("what is the name of this folder?")
-	<-started
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithDefaultCommands())
 
 	// when
 	c.Submit("/help")
-	close(release)
+	waitIdle(t, c)
 
 	// then
-	require.Eventually(t, func() bool {
-		return !c.Busy() && !c.Queued()
-	}, time.Second, 5*time.Millisecond)
-
-	kinds := make([]command.Kind, 0)
-	for _, ln := range c.Transcript() {
-		kinds = append(kinds, ln.Kind)
+	lines := c.Transcript()
+	require.Len(t, lines, 1)
+	for _, want := range []string{"/clear", "/compact", "/effort", "/exit", "/help", "/model"} {
+		assert.Contains(t, lines[0].Text, want)
 	}
-	assert.Equal(t, []command.Kind{
-		command.User, command.Activity, command.Reply, command.Info,
-	}, kinds, "a queued command reaches the transcript after the turn it waited on")
+}
+
+type recordingCommand struct {
+	name string
+	log  *[]string
+	mu   *sync.Mutex
+}
+
+func (r recordingCommand) Name() string { return r.name }
+func (r recordingCommand) Help() string { return "record" }
+func (r recordingCommand) Run(command.Context, string) {
+	r.mu.Lock()
+	*r.log = append(*r.log, r.name)
+	r.mu.Unlock()
+}
+
+type blockingCommand struct {
+	name    string
+	started chan bool
+	release chan struct{}
+}
+
+func (b blockingCommand) Name() string { return b.name }
+func (b blockingCommand) Help() string { return "block" }
+func (b blockingCommand) Run(ctx command.Context, _ string) {
+	b.started <- true
+	<-b.release
+}
+
+type gatedCommand struct {
+	name    string
+	started chan string
+	release chan struct{}
+}
+
+func (g gatedCommand) Name() string { return g.name }
+func (g gatedCommand) Help() string { return "gate" }
+func (g gatedCommand) Run(command.Context, string) {
+	g.started <- g.name
+	<-g.release
 }

@@ -1,37 +1,54 @@
-// Package chat is the headless core of the terminal chat. It owns the
+// Package chat is the headless core of a terminal chat agent. A [Chat] owns the
 // conversation transcript and drives an ai-toolkit agent, notifying a single
-// Observer whenever the transcript changes so a UI can re-render. It has no
-// dependency on any UI toolkit.
+// [Observer] whenever the transcript changes so a front-end can re-render.
 //
-// The Chat type is split across files by concern: this file holds the core
-// state and input lifecycle, context.go the command.Context capabilities,
-// feedback.go the agent.Feedback events, and format.go the status and
-// telemetry formatting.
+// The core has no dependency on any UI toolkit and renders nothing itself: it
+// stores plain semantic text in [Line] and leaves every glyph, color and layout
+// decision to the front-end. The bundled Bubble Tea renderer lives in package
+// ui, but it is only one Observer — drive a Chat from a test, a log sink or
+// your own UI just as well.
+//
+// A Chat is safe for concurrent use. Input submitted while a turn is running is
+// queued and replayed in order once the turn ends, so callers never have to
+// check whether the core is busy before calling [Chat.Submit].
 package chat
 
 import (
 	"context"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 )
 
-// Line is one transcript entry: its text and the Kind the UI styles it by.
+// Line is one entry in the transcript: the text to show and the [command.Kind]
+// a front-end styles it by. Text carries no decoration — no prompt glyph, no
+// bullet, no indent — so a renderer is free to present it however it likes.
+//
+// Detail is the second half of a paired entry and is empty for most kinds. For
+// [command.Activity] it holds the tool result belonging to the call in Text, so
+// a renderer can style request and response differently without parsing.
 type Line struct {
-	Kind command.Kind
-	Text string
+	Kind   command.Kind
+	Text   string
+	Detail string
 }
 
-// Observer receives the core's two signals to the UI: re-render after a
-// transcript change, and quit. The UI implements both; the core never renders
-// or exits the program itself.
+// Observer receives the core's two signals to a front-end. A Chat never renders
+// or exits the program itself; it calls these instead.
+//
+// Both methods may be called from any goroutine, including while the caller is
+// inside a Chat method, so an implementation must not block.
 type Observer interface {
+	// TranscriptChanged reports that the transcript gained a line or was
+	// reset, and that the front-end should re-render.
 	TranscriptChanged()
+
+	// Quit reports that the session should end, in response to /exit.
 	Quit()
 }
 
@@ -45,8 +62,16 @@ type agentBackend interface {
 	ResetSession() error
 }
 
-// Chat owns the transcript and mediates between the agent and the UI. All state
-// is guarded by mu; observer notifications fire outside the lock.
+// Chat is the headless conversation core. Create one with [New] and hand it to
+// a front-end such as ui.Run.
+//
+// Chat implements [command.Context] and [command.AgentController], so it is the
+// value slash commands receive; it also implements agent.Feedback, so the
+// ai-toolkit agent reports tool calls and compaction through it. The methods
+// serving those two roles are documented as such and are not meant to be called
+// directly.
+//
+// All methods are safe for concurrent use.
 type Chat struct {
 	name    string
 	agent   agentBackend
@@ -61,14 +86,21 @@ type Chat struct {
 	observer   Observer
 	busy       bool
 	queue      []string
-	// pendingTool is the rendered request line of the tool call in flight, empty
-	// between calls. Tool calls run one at a time, so one is always enough.
+
 	pendingTool string
 	lastMeta    agent.Metadata
+	statusCache *StatusInfo
 }
 
-// New builds a Chat over ag and installs itself as the agent's feedback sink so
-// tool-call and compaction events flow into the transcript.
+// New creates a Chat named name that drives ag, applying opts in order.
+//
+// The name appears in the front-end's title bar and may be empty. The /help and
+// /exit commands are always registered; every other command comes from an
+// option such as [WithDefaultCommands] or [WithCommand], and a later option may
+// replace an earlier one by registering the same name.
+//
+// New registers the Chat as ag's feedback receiver, so a given agent should
+// back only one Chat.
 func New(name string, ag *agent.Agent, opts ...Option) *Chat {
 	c := newChat(name, opts...)
 	c.agent = ag
@@ -84,48 +116,81 @@ func newChat(name string, opts ...Option) *Chat {
 		telemetryFmt: defaultTelemetryFormatter,
 		statusFmt:    defaultStatusFormatter,
 	}
+	c.register(command.Help(c))
+	c.register(command.Exit(c))
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
 }
 
-// SetContext replaces the context used for agent calls. Must be called before
-// the first Submit. Not safe for concurrent use.
+// SetContext sets the context used for agent turns and for the model and
+// compaction calls the core makes on its own. Cancelling it ends the session's
+// work. Call it before the first [Chat.Submit]; ui.Run calls it for you.
 func (c *Chat) SetContext(ctx context.Context) { c.baseCtx = ctx }
 
 func (c *Chat) register(cmd command.Command) {
 	c.commands[cmd.Name()] = cmd
 }
 
-// Name is the display name given at construction.
+// Name returns the name given to [New], for a front-end to display.
 func (c *Chat) Name() string { return c.name }
 
-// SetObserver registers the single observer notified on transcript changes.
+// Commands returns every registered command, sorted by name. It implements
+// [command.Registry] so /help can list them.
+func (c *Chat) Commands() []command.Command {
+	cmds := slices.Collect(maps.Values(c.commands))
+	slices.SortFunc(cmds, func(a, b command.Command) int {
+		return strings.Compare(a.Name(), b.Name())
+	})
+	return cmds
+}
+
+// SetObserver installs the observer notified on transcript changes and on
+// /exit, replacing any previous one. Passing nil silences both signals.
 func (c *Chat) SetObserver(o Observer) {
 	c.mu.Lock()
 	c.observer = o
 	c.mu.Unlock()
 }
 
-// Transcript returns a snapshot copy of the current transcript.
+// Transcript returns a copy of the whole transcript. Front-ends that print
+// incrementally should prefer [Chat.TranscriptLen] with [Chat.Since], which
+// copies only the part they have not shown yet.
 func (c *Chat) Transcript() []Line {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make([]Line, len(c.transcript))
-	copy(out, c.transcript)
-	return out
+	return c.Since(0)
 }
 
-// Busy reports whether an agent turn is currently in flight.
+// TranscriptLen returns the number of lines in the transcript. It shrinks to
+// zero when [Chat.Clear] resets the session.
+func (c *Chat) TranscriptLen() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.transcript)
+}
+
+// Since returns a copy of the transcript from line n onward, for a front-end
+// that has already shown the first n lines. It returns nil when n is negative
+// or past the end, which is what a caller sees after [Chat.Clear] has reset the
+// transcript beneath it.
+func (c *Chat) Since(n int) []Line {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if n < 0 || n > len(c.transcript) {
+		return nil
+	}
+	return slices.Clone(c.transcript[n:])
+}
+
+// Busy reports whether a turn or command is currently running.
 func (c *Chat) Busy() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.busy
 }
 
-// PendingTool returns the tool call in flight rendered for display, and empty
-// when none is running.
+// PendingTool returns a description of the tool call in flight, or an empty
+// string when none is running. A front-end can show it as progress detail.
 func (c *Chat) PendingTool() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -133,45 +198,42 @@ func (c *Chat) PendingTool() string {
 	return c.pendingTool
 }
 
-// Queued reports whether input is waiting behind the turn in flight.
+// Queued reports whether input submitted during a running turn is still
+// waiting to run.
 func (c *Chat) Queued() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.queue) > 0
 }
 
-// LastMetadata returns the metadata of the most recently completed turn.
+// LastMetadata returns the metadata of the most recent successful turn. It is
+// the zero value before the first turn completes and after [Chat.Clear].
 func (c *Chat) LastMetadata() agent.Metadata {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.lastMeta
 }
 
-// Submit handles a line of user input: a slash command is dispatched, otherwise
-// the text runs as an agent turn. Blank input is ignored; input arriving while a
-// turn is in flight is queued and runs, in submission order, once that turn
-// ends. Agent and command work run off the caller's goroutine; results reach the
-// transcript through the observer.
+// Submit queues text as the next input and returns immediately; the work runs
+// on its own goroutine.
+//
+// Text is trimmed, and empty input is ignored. Input beginning with "/" runs as
+// a slash command, anything else as an agent turn. Commands and turns share one
+// queue and run strictly in submission order, so a command never overlaps a
+// turn or another command.
 func (c *Chat) Submit(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
-	if c.enqueue(text) {
-		c.notify()
-		return
-	}
-	if strings.HasPrefix(text, "/") {
-		c.dispatch(text)
+	queued := c.enqueue(text)
+	c.notify()
+	if queued {
 		return
 	}
 	go c.process(c.baseCtx, text)
 }
 
-// enqueue parks text behind the turn in flight and reports whether it did. On an
-// idle chat it instead claims the turn for the caller, so the busy check and the
-// claim cannot be split by a second Submit. Commands claim nothing: they run
-// alongside an idle chat.
 func (c *Chat) enqueue(text string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -179,15 +241,10 @@ func (c *Chat) enqueue(text string) bool {
 		c.queue = append(c.queue, text)
 		return true
 	}
-	if !strings.HasPrefix(text, "/") {
-		c.busy = true
-	}
+	c.busy = true
 	return false
 }
 
-// dequeue takes the oldest queued input, or clears the busy flag when there is
-// none left. Both happen under one lock, so no Submit can slip between them and
-// start a second turn beside the one draining.
 func (c *Chat) dequeue() (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -200,27 +257,9 @@ func (c *Chat) dequeue() (string, bool) {
 	return next, true
 }
 
-func (c *Chat) dispatch(input string) {
-	if cmd, args, ok := c.resolve(input); ok {
-		go cmd.Run(c, args)
-	}
-}
-
-// resolve splits input into a registered command and its arguments. The
-// built-ins and the unknown-name error are handled here rather than returned,
-// so both callers get them without repeating the switch.
 func (c *Chat) resolve(input string) (command.Command, string, bool) {
 	name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
 	args = strings.TrimSpace(args)
-
-	switch name {
-	case "exit":
-		c.quit()
-		return nil, "", false
-	case "help":
-		c.append(command.Info, c.helpText())
-		return nil, "", false
-	}
 
 	cmd, ok := c.commands[name]
 	if !ok {
@@ -230,49 +269,9 @@ func (c *Chat) resolve(input string) (command.Command, string, bool) {
 	return cmd, args, true
 }
 
-func (c *Chat) helpText() string {
-	names := make([]string, 0, len(c.commands))
-	for name := range c.commands {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	type entry struct{ usage, desc string }
-	entries := make([]entry, 0, len(names)+2)
-	for _, name := range names {
-		cmd := c.commands[name]
-		entries = append(entries, entry{usage: usageOf(cmd), desc: cmd.Help()})
-	}
-	entries = append(entries,
-		entry{usage: "/help", desc: "Show this message"},
-		entry{usage: "/exit", desc: "Quit"},
-	)
-
-	width := 0
-	for _, e := range entries {
-		width = max(width, utf8.RuneCountInString(e.usage))
-	}
-
-	lines := make([]string, 0, len(entries)+1)
-	lines = append(lines, "Commands:")
-	for _, e := range entries {
-		pad := strings.Repeat(" ", width-utf8.RuneCountInString(e.usage))
-		lines = append(lines, "  "+e.usage+pad+" "+e.desc)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// usageOf renders a command as it appears in the left column of /help: its name
-// plus the argument spec, when it advertises one.
-func usageOf(cmd command.Command) string {
-	usage := "/" + cmd.Name()
-	if a, ok := cmd.(command.Argumented); ok && a.Args() != "" {
-		usage += " " + a.Args()
-	}
-	return usage
-}
-
-func (c *Chat) quit() {
+// Quit asks the observer to end the session. It implements [command.Quitter]
+// for /exit and does nothing when no observer is installed.
+func (c *Chat) Quit() {
 	c.mu.Lock()
 	o := c.observer
 	c.mu.Unlock()
@@ -281,15 +280,10 @@ func (c *Chat) quit() {
 	}
 }
 
-// process runs text as an agent turn, then keeps draining whatever the user
-// typed meanwhile. The busy flag is held for the whole drain: clearing it is
-// what lets the next Submit start a turn, and dequeue only does so once the
-// queue is empty. A queued command runs inline here, so it cannot overtake the
-// input queued behind it.
 func (c *Chat) process(ctx context.Context, text string) {
 	for ok := true; ok; text, ok = c.dequeue() {
 		if strings.HasPrefix(text, "/") {
-			if cmd, args, found := c.resolve(text); found {
+			if cmd, args, ok := c.resolve(text); ok {
 				cmd.Run(c, args)
 			}
 			continue
@@ -299,19 +293,17 @@ func (c *Chat) process(ctx context.Context, text string) {
 }
 
 func (c *Chat) turn(ctx context.Context, text string) {
-	c.append(command.User, "❯ "+text)
+	c.append(command.User, text)
 
 	resp, err := c.agent.Process(ctx, text)
 
-	// A turn can end with a call still in flight — a cancelled context, or an
-	// agent error raised before the tool returned. Print it rather than let it
-	// disappear along with the live region.
 	c.closeToolCall(formatToolResult("", nil, 0))
 
 	c.mu.Lock()
 	if err == nil && resp != nil {
 		c.lastMeta = resp.Metadata
 	}
+	c.statusCache = nil
 	c.mu.Unlock()
 
 	switch {
@@ -328,8 +320,12 @@ func (c *Chat) turn(ctx context.Context, text string) {
 }
 
 func (c *Chat) append(k command.Kind, text string) {
+	c.appendLine(Line{Kind: k, Text: text})
+}
+
+func (c *Chat) appendLine(ln Line) {
 	c.mu.Lock()
-	c.transcript = append(c.transcript, Line{Kind: k, Text: text})
+	c.transcript = append(c.transcript, ln)
 	c.mu.Unlock()
 	c.notify()
 }

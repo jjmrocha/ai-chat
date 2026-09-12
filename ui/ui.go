@@ -1,8 +1,28 @@
-// Package ui renders a chat.Chat as an inline Bubble Tea terminal program. It
-// observes the core and prints each new transcript line above a live region
-// holding the input and the status bar. Finished lines belong to the terminal's
-// scrollback from then on, so selection, copying and wheel scrolling stay
-// native; the program never enters the alternate screen or captures the mouse.
+// Package ui is a Bubble Tea front-end for a chat.Chat.
+//
+// [Run] is the whole public surface: hand it a core and it takes over the
+// terminal until the user quits. It is one Observer of the core, not part of
+// it — replace this package with your own renderer without touching your agent
+// logic.
+//
+// The UI renders inline rather than taking over the screen. Finished transcript
+// lines are printed above a small live region holding the thinking row, title
+// bar, input and status line, so the conversation lands in the terminal's own
+// scrollback and selection, copying and scrolling stay the terminal's. The
+// trade-off is that printed lines are never repainted, so resizing leaves
+// earlier markdown wrapped at the old width.
+//
+// Keys: Enter sends, Shift+Enter (or Alt+Enter, Ctrl+J) inserts a newline, Up
+// and Down walk prompt history, Ctrl+C quits.
+//
+// Colors come from one fixed palette that cannot be switched. Every value is
+// either an ANSI index, which the terminal's own profile defines, or empty,
+// meaning the terminal's default text color — a fixed set of hex colors can
+// only be right for the background it was tuned against, and neither this
+// package nor the program embedding it can know the user's. Markdown replies
+// follow the same rule through glamour's notty style, which sets no color at
+// all; the cost is that emphasis shows as the original markup and fenced code
+// is not syntax-highlighted.
 package ui
 
 import (
@@ -19,29 +39,25 @@ import (
 
 	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/command"
-	"github.com/jjmrocha/ai-chat/theme"
 )
 
 const (
-	// maxInputLines caps how far the input grows before it starts scrolling.
 	maxInputLines = 6
-	// inputIndent pads every row of the input, standing in for the prompt marker
-	// the input no longer carries and lining it up with the indented replies.
+
 	inputIndent = "  "
-	// idlePlaceholder invites the first message; queuedPlaceholder replaces it
-	// once input is parked behind the turn in flight, which is the only sign the
-	// user gets that what they typed was taken but has not started yet.
+
 	idlePlaceholder   = "Send a message…  (/help for commands)"
 	queuedPlaceholder = "(queued)"
+
+	userPrefix     = "❯ "
+	activityPrefix = "● "
+	detailPrefix   = "  ⎿ "
 )
 
 type (
 	refreshMsg struct{}
 	quitMsg    struct{}
-	// printedMsg closes a print sequence. Bubble Tea runs the commands an Update
-	// returns on their own goroutines, so two print sequences in flight can reach
-	// the terminal in either order; this one reports that the sequence landed and
-	// the next may start.
+
 	printedMsg struct{}
 )
 
@@ -70,25 +86,28 @@ type styles struct {
 	footer     lipgloss.Style
 }
 
-func newStyles(t theme.Theme) styles {
-	fg := func(hex string) lipgloss.Style {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(hex))
-	}
+func fg(color string) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+}
+
+func newStyles() styles {
+	p := defaultPalette
 	return styles{
-		headerName: fg(t.HeaderName).Bold(true),
-		user:       fg(t.User).Bold(true),
-		info:       fg(t.Info),
-		err:        fg(t.Error),
-		activity:   fg(t.Activity).Italic(true),
-		telemetry:  fg(t.Telemetry).Italic(true),
-		turnSep:    fg(t.TurnSep),
-		footer:     fg(t.Footer).Italic(true),
+		headerName: fg(p.HeaderName).Bold(true),
+		user:       fg(p.User).Bold(true),
+		info:       fg(p.Info),
+		err:        fg(p.Error),
+		activity:   fg(p.Activity).Italic(true),
+		telemetry:  fg(p.Telemetry).Italic(true),
+		turnSep:    fg(p.TurnSep),
+		footer:     fg(p.Footer).Italic(true),
 	}
 }
 
 type chatCore interface {
 	Name() string
-	Transcript() []chat.Line
+	TranscriptLen() int
+	Since(n int) []chat.Line
 	Busy() bool
 	StatusText() string
 	Queued() bool
@@ -106,52 +125,39 @@ type model struct {
 	height   int
 	ready    bool
 
-	// printed counts the transcript lines already sent to the scrollback. The
-	// transcript is append-only apart from /clear, so this doubles as the mark
-	// separating printed history from what still has to go out.
-	printed int
-
-	// thinkingSince marks when the current wait on the agent began, or is zero
-	// while the agent is idle. The spinner already ticks several times a second,
-	// so the elapsed count re-renders without a clock of its own.
+	printed       int
 	thinkingSince time.Time
+	printing      bool
+	quitting      bool
+	spinning      bool
 
-	// printing is set while a print sequence is on its way to the terminal. Only
-	// one may be in flight, so blocks appended meanwhile wait for the printedMsg
-	// that closes it rather than racing ahead of it.
-	printing bool
+	hrule    string
+	titleBar string
 
-	// quitting blanks the live region for the final render, so the shell prompt
-	// comes back under the conversation instead of under a stale input box.
-	quitting bool
-
-	// history holds submitted prompts, oldest first. histIdx points at the one
-	// currently recalled; when it equals len(history) the user is editing their
-	// own text rather than browsing, and draft is empty.
 	history []string
 	histIdx int
 	draft   string
 }
 
 func newModel(core chatCore) model {
-	sty := newStyles(theme.Palette)
+	sty := newStyles()
 
 	ti := textarea.New()
 	ti.ShowLineNumbers = false
 	ti.DynamicHeight = true
 	ti.MinHeight = 1
 	ti.MaxHeight = maxInputLines
-	// Enter submits, so the newline moves to the modifiers terminals can send.
+
 	ti.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("shift+enter", "alt+enter", "ctrl+j"),
 		key.WithHelp("shift+enter", "insert newline"),
 	)
 	ti.Prompt = inputIndent
-	ti.SetStyles(inputStyles(theme.Palette))
+	ti.SetStyles(inputStyles())
 	ti.Focus()
 
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Palette.Info))
+	sp.Style = fg(defaultPalette.Info)
 
 	return model{
 		core:     core,
@@ -162,32 +168,19 @@ func newModel(core chatCore) model {
 	}
 }
 
-// inputStyles strips the textarea's painted background and fixed foregrounds.
-// textarea.New installs DefaultDarkStyles, whose focused CursorLine paints an
-// opaque ANSI-0 block behind the line being typed and whose Prompt is ANSI 7;
-// on a light profile that is dark text on black under a white-on-white prompt.
-// Letting the terminal's own background and text colour through is correct on
-// any profile. The cursor takes the palette's accent so it stays findable, and
-// the placeholder takes TurnSep, the dimmest value in the palette, so prompt
-// text never reads as something the user typed.
-func inputStyles(t theme.Theme) textarea.Styles {
+func inputStyles() textarea.Styles {
 	s := textarea.DefaultDarkStyles()
 	for _, state := range []*textarea.StyleState{&s.Focused, &s.Blurred} {
 		state.Base = lipgloss.NewStyle()
 		state.CursorLine = lipgloss.NewStyle()
 		state.Prompt = lipgloss.NewStyle()
 		state.Text = lipgloss.NewStyle()
-		state.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TurnSep))
+		state.Placeholder = fg(defaultPalette.TurnSep)
 	}
-	s.Cursor.Color = lipgloss.Color(t.Info)
+	s.Cursor.Color = lipgloss.Color(defaultPalette.Info)
 	return s
 }
 
-// newRenderer builds the markdown renderer. The style is fixed: glamour's other
-// builtins are hex palettes tuned for one background, and this code has no way
-// to know the user's, while notty sets no colour at all. The cost is that it
-// conveys emphasis by re-emitting the markup — "**bold**" keeps its asterisks —
-// and highlights no syntax.
 func newRenderer(width int) *glamour.TermRenderer {
 	r, _ := glamour.NewTermRenderer(
 		glamour.WithStandardStyle("notty"),
@@ -196,11 +189,19 @@ func newRenderer(width int) *glamour.TermRenderer {
 	return r
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(textarea.Blink, m.spinner.Tick) }
+func (m model) Init() tea.Cmd { return textarea.Blink }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	m.trackThinking()
+	tick := m.trackThinking()
 
+	next, cmd := m.update(msg)
+	if tick == nil {
+		return next, cmd
+	}
+	return next, tea.Batch(cmd, tick)
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		if msg.Width != m.width {
@@ -209,6 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.input.SetWidth(max(msg.Width-2, 0))
+		m.resize()
 		m.ready = true
 		return m.emit()
 
@@ -224,6 +226,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case spinner.TickMsg:
+		if !m.core.Busy() {
+			m.spinning = false
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
@@ -255,8 +261,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// remember appends a submitted prompt to the history and ends any browsing.
-// Blank text and an immediate repeat of the newest entry are not recorded.
 func (m *model) remember(text string) {
 	m.draft = ""
 	if trimmed := strings.TrimSpace(text); trimmed != "" {
@@ -267,9 +271,6 @@ func (m *model) remember(text string) {
 	m.histIdx = len(m.history)
 }
 
-// recallOlder loads the previous prompt into the input, reporting whether it
-// consumed the key. It declines while the cursor still has draft lines above
-// it, so ↑ keeps moving the cursor inside a multi-line message.
 func (m *model) recallOlder() bool {
 	if m.input.Line() > 0 || m.histIdx == 0 {
 		return false
@@ -282,8 +283,6 @@ func (m *model) recallOlder() bool {
 	return true
 }
 
-// recallNewer walks back toward the draft the user was typing, reporting
-// whether it consumed the key.
 func (m *model) recallNewer() bool {
 	if m.histIdx >= len(m.history) || m.input.Line() < m.input.LineCount()-1 {
 		return false
@@ -320,27 +319,25 @@ func (m model) View() tea.View {
 	return v
 }
 
-// liveRegion is everything held below the scrollback: the thinking row, the
-// title bar, the input, and the status bar. The thinking row opens it and keeps
-// its line while the agent idles, so the layout never jumps and printed blocks
-// always have a blank line between them and the title bar.
 func (m model) liveRegion() string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.thinkingLine(),
-		m.titleBar(),
+		m.titleBar,
 		m.input.View(),
-		m.styles.headerName.Render(m.hrule()),
+		m.styles.headerName.Render(m.hrule),
 		m.styles.footer.Render(m.core.StatusText()),
 	)
 }
 
-func (m model) hrule() string { return strings.Repeat("─", m.width) }
+func (m *model) resize() {
+	m.hrule = strings.Repeat("─", m.width)
+	m.titleBar = m.renderTitleBar()
+}
 
-// titleBar is the rule that caps the live region, carrying the chat's name.
-func (m model) titleBar() string {
+func (m model) renderTitleBar() string {
 	name := m.core.Name()
 	if name == "" {
-		return m.styles.headerName.Render(m.hrule())
+		return m.styles.headerName.Render(m.hrule)
 	}
 	label := " " + name + " "
 	left := 5
@@ -350,17 +347,12 @@ func (m model) titleBar() string {
 	return l + m.styles.headerName.Render(label) + r
 }
 
-// emit sends every transcript line not yet printed to the scrollback and, when
-// the transcript has shrunk under it, wipes the screen first.
 func (m model) emit() (tea.Model, tea.Cmd) {
 	if m.printing {
 		return m, nil
 	}
 
-	// A shrunk transcript means /clear reset the session. The conversation stays
-	// in the scrollback where the user can still read it; only the mark moves,
-	// so whatever follows the reset is printed from the start.
-	if len(m.core.Transcript()) < m.printed {
+	if m.core.TranscriptLen() < m.printed {
 		m.printed = 0
 	}
 
@@ -382,12 +374,6 @@ func (m model) emit() (tea.Model, tea.Cmd) {
 	return m, tea.Sequence(cmds...)
 }
 
-// printLimit is how many lines one printed block may carry. Bubble Tea's inline
-// renderer makes room for a block by scrolling the live region out of the way in
-// a single insert, and a terminal clamps that scroll at the top of the screen:
-// ask for more rows than are free and the live region is left stranded in the
-// scrollback, trailed by the blank lines the insert could not fill. Zero means
-// the height is not known yet, so nothing is split.
 func (m model) printLimit() int {
 	if m.height == 0 {
 		return 0
@@ -396,10 +382,6 @@ func (m model) printLimit() int {
 	return max(m.height-lipgloss.Height(m.liveRegion()), 1)
 }
 
-// chunkBlock splits a block into pieces no taller than limit lines, each of
-// which the renderer can make room for on its own. A limit of zero or less
-// leaves the block whole. Rejoining the pieces with a newline reproduces the
-// block, so nothing is added or lost by the split.
 func chunkBlock(block string, limit int) []string {
 	lines := strings.Split(block, "\n")
 	if limit <= 0 || len(lines) <= limit {
@@ -415,16 +397,10 @@ func chunkBlock(block string, limit int) []string {
 	return append(chunks, strings.Join(lines, "\n"))
 }
 
-// pending renders the transcript lines that have not reached the terminal yet.
 func (m model) pending() []string {
-	lines := m.core.Transcript()
-	if len(lines) <= m.printed {
-		return nil
-	}
-	blocks := make([]string, 0, len(lines)-m.printed)
-	for _, ln := range lines[m.printed:] {
-		// A leading blank line gives every block room of its own. Closing one
-		// too would double the gap, since the next block opens with its own.
+	lines := m.core.Since(m.printed)
+	blocks := make([]string, 0, len(lines))
+	for _, ln := range lines {
 		blocks = append(blocks, "\n"+m.renderBlock(ln))
 	}
 	return blocks
@@ -434,15 +410,15 @@ func (m model) renderBlock(ln chat.Line) string {
 	s := m.styles
 	switch ln.Kind {
 	case command.User:
-		return s.user.Render(ln.Text)
+		return s.user.Render(userPrefix + ln.Text)
 	case command.Info:
 		return s.info.Render(ln.Text)
 	case command.Error:
 		return s.err.Render(ln.Text)
 	case command.Activity:
-		return m.renderActivity(ln.Text)
+		return m.renderActivity(ln)
 	case command.Telemetry:
-		return s.turnSep.Render(m.hrule()) + "\n" + s.telemetry.Render(ln.Text)
+		return s.turnSep.Render(m.hrule) + "\n" + s.telemetry.Render(ln.Text)
 	case command.Reply:
 		return m.renderMarkdown(ln.Text)
 	default:
@@ -450,32 +426,30 @@ func (m model) renderBlock(ln chat.Line) string {
 	}
 }
 
-// renderActivity styles a tool call and the response line that closes it apart,
-// so the results read dimmer than the calls that produced them. An activity
-// carrying no response — a compaction notice — is styled whole.
-func (m model) renderActivity(text string) string {
-	call, response, found := strings.Cut(text, "\n")
-	if !found {
-		return m.styles.activity.Render(text)
+func (m model) renderActivity(ln chat.Line) string {
+	head := m.styles.activity.Render(activityPrefix + ln.Text)
+	if ln.Detail == "" {
+		return head
 	}
 
-	return m.styles.activity.Render(call) + "\n" + m.styles.telemetry.Render(response)
+	return head + "\n" + m.styles.telemetry.Render(detailPrefix+ln.Detail)
 }
 
-// trackThinking starts the wait clock when a turn begins and stops it when the
-// agent goes idle. A queued drain is one wait: the clock spans it rather than
-// restarting per turn, since what it reports is how long the user has waited.
-func (m *model) trackThinking() {
-	switch {
-	case !m.core.Busy():
+func (m *model) trackThinking() tea.Cmd {
+	if !m.core.Busy() {
 		m.thinkingSince = time.Time{}
-	case m.thinkingSince.IsZero():
+		return nil
+	}
+	if m.thinkingSince.IsZero() {
 		m.thinkingSince = time.Now()
 	}
+	if m.spinning {
+		return nil
+	}
+	m.spinning = true
+	return m.spinner.Tick
 }
 
-// thinkingLine is the row above the title bar: the spinner and how long the wait
-// has run, or an empty line holding that row while the agent idles.
 func (m model) thinkingLine() string {
 	if m.thinkingSince.IsZero() {
 		return ""
@@ -490,7 +464,6 @@ func (m model) thinkingLine() string {
 	return m.spinner.View() + m.styles.footer.Render(" "+label)
 }
 
-// placeholder is the prompt an empty input shows.
 func (m model) placeholder() string {
 	if m.core.Queued() {
 		return queuedPlaceholder
@@ -509,7 +482,13 @@ func (m model) renderMarkdown(s string) string {
 	return strings.Trim(out, "\n")
 }
 
-// Run renders core in a Bubble Tea program until the user quits or ctx is done.
+// Run renders core in the terminal and blocks until the user quits with Ctrl+C
+// or /exit, or until ctx is cancelled.
+//
+// It installs itself as the core's observer and sets the core's context, so
+// there is no need to call chat.Chat.SetObserver or chat.Chat.SetContext
+// beforehand. It returns the Bubble Tea program's error, or nil on a clean
+// exit.
 func Run(ctx context.Context, core *chat.Chat) error {
 	core.SetContext(ctx)
 	p := tea.NewProgram(newModel(core), tea.WithContext(ctx))

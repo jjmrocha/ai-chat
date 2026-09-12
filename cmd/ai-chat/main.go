@@ -1,13 +1,3 @@
-// Command ai-chat launches the terminal chat UI backed by an ai-toolkit agent.
-//
-// It is the generic showcase: a local Ollama model, no API key, and a spread of
-// the toolkit's tool sources. Shell and file tools are served in-process and are
-// always on; the web tools run behind an MCP server that stays stopped until
-// /mcp on donsetch, so their schema costs nothing until asked for.
-//
-// Usage:
-//
-//	go run ./cmd/ai-chat
 package main
 
 import (

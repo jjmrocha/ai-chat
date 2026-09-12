@@ -2,13 +2,14 @@ package command
 
 import (
 	"context"
-	"fmt"
 	"strings"
 )
 
 type mcpCmd struct{ mgr MCPController }
 
-// MCP returns the /mcp command bound to mgr: show or toggle MCP servers.
+// MCP returns the /mcp command, which lists the servers mgr knows about and
+// starts or stops them by name. With exactly one server registered, the name
+// may be omitted.
 func MCP(mgr MCPController) Command {
 	return mcpCmd{mgr: mgr}
 }
@@ -33,19 +34,15 @@ func (c mcpCmd) Run(ctx Context, args string) {
 	switch action {
 	case "":
 		statuses := c.mgr.Status()
-		if len(statuses) == 0 {
-			ctx.Print(Info, "No MCP servers registered.")
-			return
-		}
 		items := make([]string, 0, len(statuses))
 		for _, s := range statuses {
 			state := "off"
 			if s.Active {
 				state = "on"
 			}
-			items = append(items, fmt.Sprintf("%s: %s", s.Name, state))
+			items = append(items, s.Name+": "+state)
 		}
-		ctx.Print(Info, listText("MCP servers", items))
+		printList(ctx, "MCP servers", "No MCP servers registered.", items)
 
 	case "on", "off":
 		target, ok := c.resolveName(name)
@@ -62,7 +59,7 @@ func (c mcpCmd) Run(ctx Context, args string) {
 			verb = "stopped"
 		}
 		if err != nil {
-			ctx.Print(Error, "Error: "+err.Error())
+			printErr(ctx, err)
 			return
 		}
 		ctx.Print(Info, "MCP "+target+" "+verb+".")

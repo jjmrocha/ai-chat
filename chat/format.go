@@ -5,12 +5,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 )
 
-// StatusInfo is the data a StatusFormatter renders into the bottom status bar.
+// StatusInfo is the state a status line is built from: the active model and
+// provider, the reasoning effort, how full the context window is as a
+// percentage, and the token total of the last turn. Fields are zero when the
+// model's limits are not known yet.
 type StatusInfo struct {
 	Name     string
 	Provider llm.Provider
@@ -19,30 +23,51 @@ type StatusInfo struct {
 	Tokens   int
 }
 
-// TelemetryFormatter renders a turn's usage/timing into the plain-text line
-// appended after a reply. The UI applies color.
+// TelemetryFormatter renders the telemetry line appended after a turn. Return
+// an empty string to append nothing. Install one with [WithTelemetryFormatter].
 type TelemetryFormatter func(agent.Metadata) string
 
-// StatusFormatter renders the current status into the plain-text bottom bar.
-// The UI applies color.
+// StatusFormatter renders the status line a front-end shows below the input.
+// Install one with [WithStatusFormatter].
 type StatusFormatter func(StatusInfo) string
 
-// Status assembles the current status data from the agent and last turn.
+// Status returns the current model, effort and context usage. The result is
+// cached and recomputed after a turn, a model or effort change, or a clear, so
+// a front-end may call it on every frame.
 func (c *Chat) Status() StatusInfo {
-	meta := c.LastMetadata()
+	c.mu.Lock()
+	if cached := c.statusCache; cached != nil {
+		c.mu.Unlock()
+		return *cached
+	}
+	meta := c.lastMeta
+	c.mu.Unlock()
+
 	info := StatusInfo{Tokens: meta.TotalTokens}
-	if mi := c.agent.ModelInfo(c.baseCtx); mi != nil {
+	mi := c.agent.ModelInfo(c.baseCtx)
+	if mi != nil {
 		info.Name = mi.ModelName
 		info.Provider = mi.Provider
 		info.Effort = mi.Effort
 		if mi.ModelContextSize > 0 {
 			info.CtxPct = float64(meta.TotalTokens) * 100 / float64(mi.ModelContextSize)
 		}
+
+		c.mu.Lock()
+		c.statusCache = &info
+		c.mu.Unlock()
 	}
+
 	return info
 }
 
-// StatusText renders the status bar as plain text via the status formatter.
+func (c *Chat) invalidateStatus() {
+	c.mu.Lock()
+	c.statusCache = nil
+	c.mu.Unlock()
+}
+
+// StatusText returns [Chat.Status] rendered by the status formatter.
 func (c *Chat) StatusText() string { return c.statusFmt(c.Status()) }
 
 func defaultTelemetryFormatter(meta agent.Metadata) string {
@@ -68,8 +93,6 @@ func defaultTelemetryFormatter(meta agent.Metadata) string {
 	return " " + strings.Join(parts, " · ")
 }
 
-// tokenPart renders the turn's input and output counts as "↑in ↓out tokens",
-// dropping whichever side the provider did not report.
 func tokenPart(meta agent.Metadata) string {
 	var sides []string
 	if meta.PromptTokens > 0 {
@@ -84,8 +107,6 @@ func tokenPart(meta agent.Metadata) string {
 	return strings.Join(sides, " ") + " tokens"
 }
 
-// truncated reports whether the provider stopped the reply at its output-token
-// limit: "max_tokens" is Anthropic's value, "length" OpenRouter's.
 func truncated(stopReason string) bool {
 	return stopReason == "max_tokens" || stopReason == "length"
 }
@@ -110,24 +131,22 @@ func defaultStatusFormatter(info StatusInfo) string {
 func formatTokens(tokens int) string {
 	switch {
 	case tokens >= 1_000_000:
-		v := float64(tokens) / 1_000_000
-		if v == float64(int(v)) {
-			return fmt.Sprintf("%dM", tokens/1_000_000)
-		}
-		return fmt.Sprintf("%.2fM", v)
+		return scaleSuffix(tokens, 1_000_000, "M")
 	case tokens >= 1_000:
-		v := float64(tokens) / 1_000
-		if v == float64(int(v)) {
-			return fmt.Sprintf("%dK", tokens/1_000)
-		}
-		return fmt.Sprintf("%.2fK", v)
+		return scaleSuffix(tokens, 1_000, "K")
 	default:
 		return strconv.Itoa(tokens)
 	}
 }
 
-// formatBytes renders a size for display, in the largest unit that leaves a
-// whole part.
+func scaleSuffix(n, unit int, suffix string) string {
+	v := float64(n) / float64(unit)
+	if v == float64(int(v)) {
+		return strconv.Itoa(n/unit) + suffix
+	}
+	return fmt.Sprintf("%.2f%s", v, suffix)
+}
+
 func formatBytes(n int) string {
 	switch {
 	case n >= 1<<20:
@@ -140,17 +159,11 @@ func formatBytes(n int) string {
 }
 
 const (
-	// maxToolResultLen caps the result text shown on a response line. It is
-	// larger than maxToolArgLen because the result owns a whole line, where an
-	// argument shares one with the rest of the call.
 	maxToolResultLen = 400
 )
 
-// formatToolResult renders the response line that closes a tool call: what the
-// call produced, and how long it took. A zero elapsed with no result and no
-// error is a call that never returned.
 func formatToolResult(result string, err error, elapsed time.Duration) string {
-	line := "  ⎿ " + toolOutcome(result, err, elapsed)
+	line := toolOutcome(result, err, elapsed)
 	if elapsed > 0 {
 		line += " · " + formatDuration(elapsed)
 	}
@@ -158,9 +171,6 @@ func formatToolResult(result string, err error, elapsed time.Duration) string {
 	return line
 }
 
-// formatDuration renders how long a call took, in whole milliseconds below a
-// second. Local tools routinely finish in a few of them, and reporting those as
-// "0.0s" would hide the timing this line exists to show.
 func formatDuration(d time.Duration) string {
 	switch {
 	case d >= time.Second:
@@ -185,11 +195,6 @@ func toolOutcome(result string, err error, elapsed time.Duration) string {
 	}
 }
 
-// formatOutput renders a tool's output: the text itself when it is a single
-// line within budget, and its size otherwise. It prints bare rather than
-// quoted, because output is not a literal. A multi-line result always reports
-// its size — the response is one line, and the tools return tagged text whose
-// shape this code has no business interpreting.
 func formatOutput(result string) string {
 	if len(result) > maxToolResultLen || strings.ContainsFunc(result, isControl) {
 		return formatBytes(len(result))
@@ -198,17 +203,10 @@ func formatOutput(result string) string {
 	return result
 }
 
-// isControl reports whether r steers the terminal rather than printing on it.
-// Tool output is untrusted — a shell command's output, or whatever an MCP
-// server chose to send — and it reaches the terminal unescaped, so an escape
-// sequence left in it would move the cursor, clear the screen, or corrupt the
-// live region. Newline counts: a result spanning lines does not belong on one.
 func isControl(r rune) bool {
 	return r < 0x20 || r == 0x7f
 }
 
-// stripControl removes the characters isControl rejects, for text that is shown
-// rather than measured.
 func stripControl(s string) string {
 	return strings.Map(func(r rune) rune {
 		if isControl(r) {
@@ -230,5 +228,10 @@ func truncate(s string, budget int) string {
 		return s
 	}
 
-	return s[:budget] + "…"
+	cut := budget
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+
+	return s[:cut] + "…"
 }

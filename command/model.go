@@ -2,7 +2,8 @@ package command
 
 type modelCmd struct{}
 
-// Model returns the /model command: list the available models or switch to one.
+// Model returns the /model command: with no argument it lists the available
+// models, otherwise it switches to the named one.
 func Model() Command {
 	return modelCmd{}
 }
@@ -21,16 +22,11 @@ func (modelCmd) Args() string {
 
 func (modelCmd) Run(ctx Context, args string) {
 	if args == "" {
-		models := ctx.Agent().AvailableModels()
-		if len(models) == 0 {
-			ctx.Print(Info, "No models available.")
-			return
-		}
-		ctx.Print(Info, listText("Models", models))
+		printList(ctx, "Models", "No models available.", ctx.Agent().AvailableModels())
 		return
 	}
 	if err := ctx.Agent().ChangeModel(args); err != nil {
-		ctx.Print(Error, "Error: "+err.Error())
+		printErr(ctx, err)
 		return
 	}
 	ctx.Print(Info, "Switched to: "+args)

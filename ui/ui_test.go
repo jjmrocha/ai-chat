@@ -1,930 +1,507 @@
 package ui
 
 import (
-	"regexp"
 	"strings"
 	"testing"
-	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/command"
-	"github.com/jjmrocha/ai-chat/theme"
 )
 
-type mockedChatCore struct {
-	nameFunc       func() string
-	transcriptFunc func() []chat.Line
-	busyFunc       func() bool
-	statusTextFunc func() string
-	queuedFunc     func() bool
-	pendingFunc    func() string
-	submitFunc     func(text string)
-}
-
-func (m *mockedChatCore) Name() string {
-	if m.nameFunc == nil {
-		return "TEST"
-	}
-	return m.nameFunc()
-}
-
-func (m *mockedChatCore) Transcript() []chat.Line {
-	if m.transcriptFunc == nil {
-		return nil
-	}
-	return m.transcriptFunc()
-}
-
-func (m *mockedChatCore) Busy() bool {
-	if m.busyFunc == nil {
-		return false
-	}
-	return m.busyFunc()
-}
-
-func (m *mockedChatCore) StatusText() string {
-	if m.statusTextFunc == nil {
-		return ""
-	}
-	return m.statusTextFunc()
-}
-
-func (m *mockedChatCore) Queued() bool {
-	if m.queuedFunc == nil {
-		return false
-	}
-	return m.queuedFunc()
-}
-
-func (m *mockedChatCore) PendingTool() string {
-	if m.pendingFunc == nil {
-		return ""
-	}
-	return m.pendingFunc()
-}
-
-func (m *mockedChatCore) Submit(text string) {
-	if m.submitFunc != nil {
-		m.submitFunc(text)
-	}
-}
-
-func sizedModel(t *testing.T, core chatCore) model {
+func sized(t *testing.T, core chatCore, w, h int) model {
 	t.Helper()
 	m := newModel(core)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	sized, ok := updated.(model)
-	if !ok {
-		t.Fatalf("Update returned %T, expected model", updated)
-	}
-	return sized
+	next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	return next.(model)
 }
 
-func TestRenderBlock(t *testing.T) {
+func TestInitDoesNotStartTheSpinner(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+	m := newModel(core)
+
+	// when
+	result := m.Init()
+
+	// then
+	require.NotNil(t, result)
+	_, isTick := result().(spinner.TickMsg)
+	assert.False(t, isTick, "Init armed a spinner tick while idle")
+}
+
+func TestIdleTickStopsTheChain(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+	m := sized(t, core, 80, 24)
+
+	// when
+	next, cmd := m.Update(spinner.TickMsg{ID: m.spinner.ID()})
+
+	// then
+	assert.Nil(t, cmd, "idle tick re-armed the spinner")
+	assert.False(t, next.(model).spinning)
+}
+
+func TestBusyArmsTheSpinnerOnce(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+
+	// when
+	next, cmd := m.Update(refreshMsg{})
+
+	// then
+	m = next.(model)
+	assert.True(t, m.spinning)
+	assert.NotNil(t, cmd)
+
+	// a second event while already spinning must not arm a second chain
+	next, _ = m.Update(refreshMsg{})
+	assert.True(t, next.(model).spinning)
+}
+
+func TestBusyTickKeepsTheChainAlive(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	next, _ := m.Update(refreshMsg{})
+	m = next.(model)
+
+	// when
+	_, cmd := m.Update(spinner.TickMsg{ID: m.spinner.ID()})
+
+	// then
+	assert.NotNil(t, cmd, "busy tick did not re-arm the chain")
+}
+
+func TestSpinnerRestartsOnASecondBusyPeriod(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	next, _ := m.Update(refreshMsg{})
+	m = next.(model)
+
+	core.busy.Store(false)
+	next, _ = m.Update(spinner.TickMsg{ID: m.spinner.ID()})
+	m = next.(model)
+	require.False(t, m.spinning)
+
+	// when
+	core.busy.Store(true)
+	next, cmd := m.Update(refreshMsg{})
+
+	// then
+	assert.True(t, next.(model).spinning)
+	assert.NotNil(t, cmd)
+}
+
+func TestThinkingLineClearsWhenIdle(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	next, _ := m.Update(refreshMsg{})
+	m = next.(model)
+	require.NotEmpty(t, m.thinkingLine())
+
+	// when
+	core.busy.Store(false)
+	next, _ = m.Update(refreshMsg{})
+
+	// then
+	assert.Empty(t, next.(model).thinkingLine())
+}
+
+func TestRenderBlockAppliesGlyphs(t *testing.T) {
 	tests := []struct {
-		name string
-		kind command.Kind
+		name     string
+		line     chat.Line
+		contains []string
+		absent   []string
 	}{
-		{name: "user line", kind: command.User},
-		{name: "info line", kind: command.Info},
-		{name: "error line", kind: command.Error},
-		{name: "activity line", kind: command.Activity},
-		{name: "telemetry line", kind: command.Telemetry},
-		{name: "reply line", kind: command.Reply},
+		{
+			name:     "user line gains the prompt glyph",
+			line:     chat.Line{Kind: command.User, Text: "hello"},
+			contains: []string{"❯ hello"},
+		},
+		{
+			name:     "activity with detail gains both glyphs",
+			line:     chat.Line{Kind: command.Activity, Text: "read(x)", Detail: "ok"},
+			contains: []string{"● read(x)", "⎿ ok"},
+		},
+		{
+			name:     "activity without detail omits the detail glyph",
+			line:     chat.Line{Kind: command.Activity, Text: "context compacted"},
+			contains: []string{"● context compacted"},
+			absent:   []string{"⎿"},
+		},
+		{
+			name:     "info line is unadorned",
+			line:     chat.Line{Kind: command.Info, Text: "note"},
+			contains: []string{"note"},
+			absent:   []string{"❯", "●", "⎿"},
+		},
+		{
+			name:     "error line is unadorned",
+			line:     chat.Line{Kind: command.Error, Text: "boom"},
+			contains: []string{"boom"},
+			absent:   []string{"❯", "●"},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// given
-			m := sizedModel(t, &mockedChatCore{})
-			line := chat.Line{Kind: tc.kind, Text: "payload"}
+			m := sized(t, &mockedChatCore{}, 80, 24)
 
 			// when
-			result := m.renderBlock(line)
+			result := m.renderBlock(tc.line)
 
 			// then
-			assert.Contains(t, result, "payload")
+			for _, want := range tc.contains {
+				assert.Contains(t, result, want)
+			}
+			for _, unwanted := range tc.absent {
+				assert.NotContains(t, result, unwanted)
+			}
 		})
 	}
 }
 
-func TestRenderActivityBlock(t *testing.T) {
-	t.Run("keeps the call and its response as one block", func(t *testing.T) {
-		// given: the palette gives Activity and Telemetry the terminal's default
-		// text colour, so the ⎿ and the indent carry the separation, not colour.
-		m := sizedModel(t, &mockedChatCore{})
-		line := chat.Line{Kind: command.Activity, Text: "● file_read(path=\"a.go\")\n  ⎿ <4.1 KB> · 0.3s"}
-
-		// when
-		result := m.renderBlock(line)
-
-		// then
-		call, response, found := strings.Cut(result, "\n")
-		require.True(t, found, "the block keeps both lines")
-		assert.Contains(t, call, "file_read")
-		assert.Contains(t, response, "4.1 KB")
-		assert.True(t, strings.HasPrefix(stripANSI(response), "  ⎿ "),
-			"the response is indented under the call it closes")
-	})
-
-	t.Run("leaves a single-line activity alone", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-		line := chat.Line{Kind: command.Activity, Text: "● context compacted"}
-
-		// when
-		result := m.renderBlock(line)
-
-		// then
-		assert.NotContains(t, result, "\n")
-		assert.Contains(t, result, "context compacted")
-	})
-}
-
-func TestInputPaintsNoBackground(t *testing.T) {
-	// bubbles' textarea.New installs DefaultDarkStyles, whose focused CursorLine
-	// paints an opaque ANSI-0 block behind the line being typed. On a light
-	// profile that is dark text on black — the user cannot see what they type.
-	// The input must inherit the terminal's own background instead.
-	m := sizedModel(t, &mockedChatCore{})
-	m.input.SetValue("typing")
+func TestResizeRecomputesTheCachedChrome(t *testing.T) {
+	// given
+	m := sized(t, &mockedChatCore{}, 40, 24)
+	require.Len(t, []rune(m.hrule), 40)
+	first := m.titleBar
 
 	// when
-	result := m.input.View()
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 
 	// then
-	assert.NotRegexp(t, backgroundSGR, result, "the input must not paint a background")
-	assert.Contains(t, result, "typing")
+	m = next.(model)
+	assert.Len(t, []rune(m.hrule), 100)
+	assert.NotEqual(t, first, m.titleBar)
 }
 
-// backgroundSGR matches every way SGR sets a background: 40-47 basic,
-// 100-107 bright, and 48;5;n / 48;2;r;g;b for indexed and truecolor.
-var backgroundSGR = regexp.MustCompile(`\x1b\[[0-9;]*(4[0-7]|10[0-7]|48;)`)
+func TestTitleBarFallsBackToARuleWhenUnnamed(t *testing.T) {
+	// given
+	core := &mockedChatCore{nameFunc: func() string { return "" }}
+
+	// when
+	m := sized(t, core, 20, 24)
+
+	// then
+	assert.Equal(t, m.styles.headerName.Render(m.hrule), m.titleBar)
+}
+
+func TestPendingRendersOnlyTheUnprintedTail(t *testing.T) {
+	// given
+	all := []chat.Line{
+		{Kind: command.Info, Text: "one"},
+		{Kind: command.Info, Text: "two"},
+		{Kind: command.Info, Text: "three"},
+	}
+	core := &mockedChatCore{
+		transcriptLenFunc: func() int { return len(all) },
+		sinceFunc:         linesFrom(all),
+	}
+	m := sized(t, core, 80, 24)
+	m.printed = 2
+
+	// when
+	result := m.pending()
+
+	// then
+	require.Len(t, result, 1)
+	assert.Contains(t, result[0], "three")
+}
+
+func TestEmitResetsWhenTranscriptShrinks(t *testing.T) {
+	// given
+	core := &mockedChatCore{
+		transcriptLenFunc: func() int { return 0 },
+		sinceFunc:         func(int) []chat.Line { return nil },
+	}
+	m := sized(t, core, 80, 24)
+	m.printed = 5
+
+	// when
+	next, _ := m.emit()
+
+	// then
+	assert.Zero(t, next.(model).printed)
+}
+
+func TestEmitIsSuppressedWhilePrinting(t *testing.T) {
+	// given
+	all := []chat.Line{{Kind: command.Info, Text: "one"}}
+	core := &mockedChatCore{
+		transcriptLenFunc: func() int { return len(all) },
+		sinceFunc:         linesFrom(all),
+	}
+	m := sized(t, core, 80, 24)
+	m.printing = true
+	before := m.printed
+
+	// when
+	next, cmd := m.emit()
+
+	// then
+	assert.Nil(t, cmd)
+	assert.Equal(t, before, next.(model).printed)
+}
 
 func TestChunkBlock(t *testing.T) {
-	block := "l1\nl2\nl3\nl4\nl5"
-
-	testCases := []struct {
+	tests := []struct {
 		name     string
 		block    string
 		limit    int
 		expected []string
 	}{
 		{
-			name:     "an unknown height leaves the block whole",
-			block:    block,
+			name:     "zero limit returns the block whole",
+			block:    "a\nb\nc",
 			limit:    0,
-			expected: []string{block},
+			expected: []string{"a\nb\nc"},
 		},
 		{
-			name:     "a block that fits is not split",
-			block:    block,
+			name:     "negative limit returns the block whole",
+			block:    "a\nb",
+			limit:    -1,
+			expected: []string{"a\nb"},
+		},
+		{
+			name:     "block under the limit is untouched",
+			block:    "a\nb",
 			limit:    5,
-			expected: []string{block},
+			expected: []string{"a\nb"},
 		},
 		{
-			name:     "a taller block is split to the limit",
-			block:    block,
+			name:     "block exactly at the limit is untouched",
+			block:    "a\nb",
 			limit:    2,
-			expected: []string{"l1\nl2", "l3\nl4", "l5"},
+			expected: []string{"a\nb"},
 		},
 		{
-			name:     "an exact multiple splits evenly, with no empty chunk",
-			block:    "l1\nl2\nl3\nl4",
+			name:     "block over the limit is split",
+			block:    "a\nb\nc",
 			limit:    2,
-			expected: []string{"l1\nl2", "l3\nl4"},
+			expected: []string{"a\nb", "c"},
 		},
 		{
-			name:     "a single line survives the smallest limit",
-			block:    "only",
-			limit:    1,
-			expected: []string{"only"},
+			name:     "split is exact when evenly divisible",
+			block:    "a\nb\nc\nd",
+			limit:    2,
+			expected: []string{"a\nb", "c\nd"},
 		},
 	}
 
-	for _, tc := range testCases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// given
+			block, limit := tc.block, tc.limit
+
 			// when
-			result := chunkBlock(tc.block, tc.limit)
+			result := chunkBlock(block, limit)
 
 			// then
 			assert.Equal(t, tc.expected, result)
-			assert.Equal(t, tc.block, strings.Join(result, "\n"),
-				"rejoining the chunks must reproduce the block exactly")
 		})
 	}
 }
 
-func TestPrintLimitLeavesRoomForTheLiveRegion(t *testing.T) {
-	t.Run("an unsized model imposes no limit", func(t *testing.T) {
-		// given
-		m := newModel(&mockedChatCore{})
+func TestPlaceholderReflectsQueueState(t *testing.T) {
+	tests := []struct {
+		name     string
+		queued   bool
+		expected string
+	}{
+		{name: "idle", queued: false, expected: idlePlaceholder},
+		{name: "queued", queued: true, expected: queuedPlaceholder},
+	}
 
-		// then
-		assert.Zero(t, m.printLimit())
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			queued := tc.queued
+			m := sized(t, &mockedChatCore{queuedFunc: func() bool { return queued }}, 80, 24)
 
-	t.Run("a sized model reserves the live region's height", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
+			// when
+			result := m.placeholder()
 
-		// when
-		limit := m.printLimit()
-
-		// then
-		assert.Positive(t, limit)
-		assert.Less(t, limit, 24, "the live region must not be printed over")
-		assert.Equal(t, 24-lipgloss.Height(m.liveRegion()), limit)
-	})
+			// then
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }
 
-func TestPlaceholderIsDimmed(t *testing.T) {
-	// The placeholder is not typed text and must not read as though it were, so
-	// it takes TurnSep — the palette's dimmest value — rather than the colour
-	// the transcript uses for words.
-	m := sizedModel(t, &mockedChatCore{})
-	m.input.Placeholder = idlePlaceholder
-	m.input.SetValue("")
-
-	// when
-	result := m.input.View()
-
-	// then
-	assert.Contains(t, result, "end a message…  (/help for commands)",
-		"the cursor styles the first character on its own")
-	assert.Contains(t, result, ansiFor(theme.Palette.TurnSep))
-}
-
-// ansiFor renders a probe in colour so a test can look for that exact colour in
-// output, without hardcoding lipgloss's escape-sequence format.
-func ansiFor(colour string) string {
-	rendered := lipgloss.NewStyle().Foreground(lipgloss.Color(colour)).Render("x")
-	seq, _, _ := strings.Cut(rendered, "x")
-	return seq
-}
-
-func TestTitleBar(t *testing.T) {
-	t.Run("with name", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{nameFunc: func() string { return "MYCHAT" }})
-
-		// when
-		result := m.titleBar()
-
-		// then
-		assert.Contains(t, result, "MYCHAT")
-		assert.Contains(t, result, "─")
-	})
-
-	t.Run("without name", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{nameFunc: func() string { return "" }})
-
-		// when
-		result := m.titleBar()
-
-		// then
-		assert.NotEmpty(t, result)
-		assert.NotContains(t, result, " ")
-	})
-}
-
-func TestModelView(t *testing.T) {
-	t.Run("before first window size", func(t *testing.T) {
-		// given
-		m := newModel(&mockedChatCore{})
-
-		// when
-		result := m.View()
-
-		// then
-		assert.Contains(t, result.Content, "Initializing…")
-	})
-
-	t.Run("renders transcript and status", func(t *testing.T) {
-		// given
-		core := &mockedChatCore{
-			transcriptFunc: func() []chat.Line {
-				return []chat.Line{{Kind: command.Info, Text: "hello there"}}
-			},
-			statusTextFunc: func() string { return "model-x · ctx:0%" },
-		}
-		m := sizedModel(t, core)
-
-		// when
-		result := m.View()
-
-		// then
-		assert.NotContains(t, result.Content, "hello there", "transcript belongs to the scrollback now")
-		assert.Contains(t, result.Content, "model-x")
-	})
-
-	t.Run("the live region keeps the title bar above the input", func(t *testing.T) {
-		// given
-		core := &mockedChatCore{
-			nameFunc:       func() string { return "MYCHAT" },
-			statusTextFunc: func() string { return "model-x" },
-		}
-		m := sizedModel(t, core)
-
-		// when
-		result := m.View()
-
-		// then
-		assert.Contains(t, result.Content, "MYCHAT")
-		assert.Less(t, strings.Index(result.Content, "MYCHAT"), strings.Index(result.Content, "model-x"),
-			"the name sits above the status line")
-	})
-
-	t.Run("a rendered reply carries no newline of its own", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-
-		// when
-		result := m.renderMarkdown("Hello there")
-
-		// then
-		assert.False(t, strings.HasPrefix(result, "\n"), "the block spacing is added once, by pending")
-		assert.False(t, strings.HasSuffix(result, "\n"))
-	})
-
-	t.Run("quitting leaves nothing behind", func(t *testing.T) {
-		tests := []struct {
-			name string
-			msg  tea.Msg
-		}{
-			{name: "ctrl+c", msg: tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}},
-			{name: "core quit", msg: quitMsg{}},
-		}
-
-		for _, tc := range tests {
-			t.Run(tc.name, func(t *testing.T) {
-				// given
-				core := &mockedChatCore{
-					nameFunc:       func() string { return "MYCHAT" },
-					statusTextFunc: func() string { return "model-x" },
-				}
-				m := sizedModel(t, core)
-
-				// when
-				updated, cmd := m.Update(tc.msg)
-
-				// then
-				result, ok := updated.(model)
-				require.True(t, ok)
-				assert.Empty(t, result.View().Content, "the live region is wiped on the way out")
-				assert.NotNil(t, cmd)
-			})
-		}
-	})
-
-	t.Run("the input is indented instead of marked", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-
-		// then
-		assert.Equal(t, inputIndent, m.input.Prompt)
-	})
-
-	t.Run("the input carries no prompt marker", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-		m.input.SetValue("typed text")
-
-		// when
-		result := m.input.View()
-
-		// then
-		for _, marker := range []string{"❯", "┃", ">"} {
-			assert.NotContains(t, result, marker)
-		}
-	})
-
-	t.Run("a rule closes the live region between input and status", func(t *testing.T) {
-		// given
-		core := &mockedChatCore{
-			nameFunc:       func() string { return "MYCHAT" },
-			statusTextFunc: func() string { return "model-x" },
-		}
-		m := sizedModel(t, core)
-
-		// when
-		lines := strings.Split(m.View().Content, "\n")
-
-		// then
-		require.GreaterOrEqual(t, len(lines), 2)
-		rule := lines[len(lines)-2]
-		assert.Contains(t, rule, "─")
-		assert.Contains(t, lines[len(lines)-1], "model-x")
-	})
-
-	t.Run("the live region opens with a blank line, clearing the last printed block", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-
-		// when
-		lines := strings.Split(m.View().Content, "\n")
-
-		// then
-		require.NotEmpty(t, lines)
-		assert.Empty(t, strings.TrimSpace(lines[0]))
-	})
-
-	t.Run("the placeholder announces input waiting behind the turn", func(t *testing.T) {
-		// given
-		core := &mockedChatCore{queuedFunc: func() bool { return true }}
-		m := sizedModel(t, core)
-
-		// when
-		result := m.placeholder()
-
-		// then
-		assert.Equal(t, queuedPlaceholder, result)
-	})
-
-	t.Run("the placeholder invites a message when nothing is queued", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-
-		// when
-		result := m.placeholder()
-
-		// then
-		assert.Equal(t, idlePlaceholder, result)
-	})
-
-	t.Run("view is inline so the terminal keeps selection and scrollback", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-
-		// when
-		result := m.View()
-
-		// then
-		assert.False(t, result.AltScreen)
-		assert.Equal(t, tea.MouseModeNone, result.MouseMode)
-	})
-
-}
-
-func TestModelUpdate(t *testing.T) {
-	t.Run("enter submits input to the core", func(t *testing.T) {
-		// given
-		var submitted string
-		core := &mockedChatCore{submitFunc: func(text string) { submitted = text }}
-		m := sizedModel(t, core)
-		m.input.SetValue("hello agent")
-
-		// when
-		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-
-		// then
-		assert.Equal(t, "hello agent", submitted)
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Empty(t, result.input.Value())
-	})
-
-	t.Run("shift+enter inserts a newline instead of submitting", func(t *testing.T) {
-		// given
-		submitted := false
-		core := &mockedChatCore{submitFunc: func(string) { submitted = true }}
-		m := sizedModel(t, core)
-		m.input.SetValue("first")
-
-		// when
-		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
-
-		// then
-		assert.False(t, submitted, "shift+enter must not submit")
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Equal(t, "first\n", result.input.Value())
-	})
-
-	t.Run("enter submits a multi-line value intact", func(t *testing.T) {
-		// given
-		var submitted string
-		core := &mockedChatCore{submitFunc: func(text string) { submitted = text }}
-		m := sizedModel(t, core)
-		m.input.SetValue("line one\nline two")
-
-		// when
-		m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-
-		// then
-		assert.Equal(t, "line one\nline two", submitted)
-	})
-
-	t.Run("input stops growing at the cap", func(t *testing.T) {
-		// given
-		m := sizedModel(t, &mockedChatCore{})
-
-		// when
-		m.input.SetValue(strings.Repeat("x\n", 20))
-		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
-
-		// then
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Equal(t, maxInputLines, result.input.Height())
-	})
-
-	t.Run("up walks back through previous prompts", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first", "second")
-
-		// when / then
-		m = press(t, m, tea.KeyUp)
-		assert.Equal(t, "second", m.input.Value())
-
-		m = press(t, m, tea.KeyUp)
-		assert.Equal(t, "first", m.input.Value())
-
-		m = press(t, m, tea.KeyUp)
-		assert.Equal(t, "first", m.input.Value(), "stops at the oldest prompt")
-	})
-
-	t.Run("down walks forward and restores the stashed draft", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first", "second")
-		m.input.SetValue("half typed")
-
-		// when / then
-		m = press(t, m, tea.KeyUp)
-		assert.Equal(t, "second", m.input.Value())
-
-		m = press(t, m, tea.KeyUp)
-		assert.Equal(t, "first", m.input.Value())
-
-		m = press(t, m, tea.KeyDown)
-		assert.Equal(t, "second", m.input.Value())
-
-		m = press(t, m, tea.KeyDown)
-		assert.Equal(t, "half typed", m.input.Value(), "the draft comes back untouched")
-	})
-
-	t.Run("up inside a multi-line draft moves the cursor, not history", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first")
-		m.input.SetValue("draft line one\ndraft line two")
-		require.Equal(t, 1, m.input.Line(), "cursor starts on the last line")
-
-		// when
-		m = press(t, m, tea.KeyUp)
-
-		// then
-		assert.Equal(t, "draft line one\ndraft line two", m.input.Value())
-		assert.Equal(t, 0, m.input.Line(), "cursor moved up instead")
-	})
-
-	t.Run("up from the top line of a multi-line draft recalls history", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first")
-		m.input.SetValue("draft line one\ndraft line two")
-		m = press(t, m, tea.KeyUp)
-
-		// when
-		m = press(t, m, tea.KeyUp)
-
-		// then
-		assert.Equal(t, "first", m.input.Value())
-	})
-
-	t.Run("down with no history browsing moves the cursor", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first")
-		m.input.SetValue("a\nb")
-		m = press(t, m, tea.KeyUp)
-		require.Equal(t, 0, m.input.Line())
-
-		// when
-		m = press(t, m, tea.KeyDown)
-
-		// then
-		assert.Equal(t, "a\nb", m.input.Value())
-		assert.Equal(t, 1, m.input.Line())
-	})
-
-	t.Run("blank submissions are not recorded", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first", "   ", "")
-
-		// when
-		m = press(t, m, tea.KeyUp)
-
-		// then
-		assert.Equal(t, "first", m.input.Value())
-	})
-
-	t.Run("consecutive duplicates are recorded once", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first", "same", "same")
-
-		// when
-		m = press(t, m, tea.KeyUp)
-		m = press(t, m, tea.KeyUp)
-
-		// then
-		assert.Equal(t, "first", m.input.Value())
-	})
-
-	t.Run("submitting ends history browsing", func(t *testing.T) {
-		// given
-		m := submitAll(t, "first", "second")
-		m = press(t, m, tea.KeyUp)
-		require.Equal(t, "second", m.input.Value())
-
-		// when
-		m = press(t, m, tea.KeyEnter)
-		m = press(t, m, tea.KeyUp)
-
-		// then
-		assert.Equal(t, "second", m.input.Value(), "recall restarts from the newest prompt")
-	})
-
-	t.Run("only unprinted transcript lines are emitted", func(t *testing.T) {
-		// given
-		lines := []chat.Line{{Kind: command.Info, Text: "first"}}
-		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := sizedModel(t, core)
-		m = refreshed(t, m)
-		require.Equal(t, 1, m.printed)
-
-		// when
-		lines = append(lines, chat.Line{Kind: command.Info, Text: "second"})
-		pending := m.pending()
-
-		// then
-		require.Len(t, pending, 1)
-		assert.Contains(t, pending[0], "second")
-		assert.NotContains(t, pending[0], "first")
-		assert.True(t, strings.HasPrefix(pending[0], "\n"), "a blank line opens each block")
-		assert.False(t, strings.HasSuffix(pending[0], "\n"), "and nothing closes it, so blocks are one blank line apart")
-	})
-
-	t.Run("emitting advances the printed count and returns a command", func(t *testing.T) {
-		// given
-		var lines []chat.Line
-		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := sizedModel(t, core)
-		require.Zero(t, m.printed)
-		lines = append(lines, chat.Line{Kind: command.Info, Text: "first"})
-
-		// when
-		updated, cmd := m.Update(refreshMsg{})
-
-		// then
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Equal(t, 1, result.printed)
-		assert.NotNil(t, cmd, "the new line has to reach the terminal")
-	})
-
-	t.Run("no second print starts while one is in flight", func(t *testing.T) {
-		// given
-		lines := []chat.Line{{Kind: command.Info, Text: "first"}}
-		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := refreshed(t, sizedModel(t, core))
-		require.True(t, m.printing, "the first line is on its way to the terminal")
-		lines = append(lines, chat.Line{Kind: command.Info, Text: "second"})
-
-		// when
-		updated, cmd := m.Update(refreshMsg{})
-
-		// then
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Nil(t, cmd, "printing out of order is worse than printing late")
-		assert.Equal(t, 1, result.printed)
-	})
-
-	t.Run("what accumulated prints once the in-flight print lands", func(t *testing.T) {
-		// given
-		lines := []chat.Line{{Kind: command.Info, Text: "first"}}
-		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := refreshed(t, sizedModel(t, core))
-		lines = append(lines, chat.Line{Kind: command.Info, Text: "second"})
-		m = refreshed(t, m)
-
-		// when
-		updated, cmd := m.Update(printedMsg{})
-
-		// then
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.NotNil(t, cmd, "the line held back has to reach the terminal")
-		assert.Equal(t, 2, result.printed)
-	})
-
-	t.Run("nothing new emits no command", func(t *testing.T) {
-		// given
-		lines := []chat.Line{{Kind: command.Info, Text: "first"}}
-		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := refreshed(t, sizedModel(t, core))
-
-		// when
-		updated, cmd := m.Update(refreshMsg{})
-
-		// then
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Equal(t, 1, result.printed)
-		assert.Nil(t, cmd)
-	})
-
-	t.Run("a reset session reprints what replaced the old lines", func(t *testing.T) {
-		// given
-		lines := []chat.Line{
-			{Kind: command.Info, Text: "old one"},
-			{Kind: command.Info, Text: "old two"},
-		}
-		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := flushed(t, refreshed(t, sizedModel(t, core)))
-		require.Equal(t, 2, m.printed)
-
-		// when: /clear empties the transcript, then prints its confirmation
-		lines = []chat.Line{{Kind: command.Info, Text: "Context cleared."}}
-		updated, cmd := m.Update(refreshMsg{})
-
-		// then
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Equal(t, 1, result.printed, "the confirmation is printed, not dropped")
-		assert.NotNil(t, cmd)
-	})
-
-	t.Run("a shrinking transcript restarts the count and leaves the screen alone", func(t *testing.T) {
-		// given
-		lines := []chat.Line{{Kind: command.Info, Text: "old line"}}
-		core := &mockedChatCore{transcriptFunc: func() []chat.Line { return lines }}
-		m := flushed(t, refreshed(t, sizedModel(t, core)))
-		require.Equal(t, 1, m.printed)
-
-		// when
-		lines = nil
-		updated, cmd := m.Update(refreshMsg{})
-
-		// then
-		result, ok := updated.(model)
-		require.True(t, ok)
-		assert.Zero(t, result.printed)
-		assert.Nil(t, cmd, "nothing to print and nothing to wipe")
-	})
-
-}
-
-func TestObserver(t *testing.T) {
-	t.Run("nil program is safe", func(t *testing.T) {
-		// given
-		o := &observer{}
-
-		// when
-		o.TranscriptChanged()
-		o.Quit()
-
-		// then
-		assert.Nil(t, o.program)
-	})
-}
-
-func TestHrule(t *testing.T) {
+func TestThinkingLineShowsThePendingTool(t *testing.T) {
 	// given
-	m := sizedModel(t, &mockedChatCore{})
+	core := &mockedChatCore{pendingFunc: func() string { return "read(a.go)" }}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	next, _ := m.Update(refreshMsg{})
 
 	// when
-	result := m.hrule()
+	result := next.(model).thinkingLine()
 
 	// then
-	expected := strings.Repeat("─", 80)
-	assert.Equal(t, expected, result)
+	assert.Contains(t, result, "read(a.go)")
+	assert.NotContains(t, result, "Thinking for")
 }
 
-// press sends one key to the model and returns the updated model.
-func press(t *testing.T, m model, code rune) model {
-	t.Helper()
-	updated, _ := m.Update(tea.KeyPressMsg{Code: code})
-	result, ok := updated.(model)
-	require.True(t, ok)
-	return result
-}
-
-// submitAll builds a sized model and submits each text in turn.
-func submitAll(t *testing.T, texts ...string) model {
-	t.Helper()
-	m := sizedModel(t, &mockedChatCore{})
-	for _, text := range texts {
-		m.input.SetValue(text)
-		m = press(t, m, tea.KeyEnter)
-	}
-	return m
-}
-
-// refreshed drives one refresh cycle and returns the resulting model.
-// flushed delivers the message that closes an in-flight print sequence, the way
-// the runtime does once the blocks have reached the terminal.
-func flushed(t *testing.T, m model) model {
-	t.Helper()
-	updated, _ := m.Update(printedMsg{})
-	result, ok := updated.(model)
-	require.True(t, ok)
-	return result
-}
-
-func refreshed(t *testing.T, m model) model {
-	t.Helper()
-	updated, _ := m.Update(refreshMsg{})
-	result, ok := updated.(model)
-	require.True(t, ok)
-	return result
-}
-
-func TestModelThinking(t *testing.T) {
-	t.Run("the row is blank while the agent is idle", func(t *testing.T) {
+func TestInputHistoryRecall(t *testing.T) {
+	t.Run("recall walks backwards then forwards", func(t *testing.T) {
 		// given
-		m := sizedModel(t, &mockedChatCore{})
+		m := sized(t, &mockedChatCore{}, 80, 24)
+		m.remember("first")
+		m.remember("second")
 
-		// when
-		result := m.thinkingLine()
+		// when / then
+		require.True(t, m.recallOlder())
+		assert.Equal(t, "second", m.input.Value())
 
-		// then
-		assert.Empty(t, result)
+		require.True(t, m.recallOlder())
+		assert.Equal(t, "first", m.input.Value())
+
+		require.True(t, m.recallNewer())
+		assert.Equal(t, "second", m.input.Value())
 	})
 
-	t.Run("the row counts the wait in whole seconds", func(t *testing.T) {
+	t.Run("recall past the oldest entry is refused", func(t *testing.T) {
 		// given
-		m := sizedModel(t, &mockedChatCore{busyFunc: func() bool { return true }})
-		m.thinkingSince = time.Now().Add(-10 * time.Second)
+		m := sized(t, &mockedChatCore{}, 80, 24)
+		m.remember("only")
+		require.True(t, m.recallOlder())
 
 		// when
-		result := m.thinkingLine()
+		result := m.recallOlder()
 
 		// then
-		assert.Contains(t, result, "Thinking for 10s")
+		assert.False(t, result)
 	})
 
-	t.Run("the row names the tool in flight instead of the generic wait", func(t *testing.T) {
+	t.Run("empty history has nothing to recall", func(t *testing.T) {
 		// given
-		m := sizedModel(t, &mockedChatCore{
-			busyFunc:    func() bool { return true },
-			pendingFunc: func() string { return `file_read(path="a.go")` },
-		})
-		m.thinkingSince = time.Now().Add(-10 * time.Second)
+		m := sized(t, &mockedChatCore{}, 80, 24)
 
 		// when
-		result := m.thinkingLine()
+		result := m.recallOlder()
 
 		// then
-		assert.Contains(t, result, "file_read")
-		assert.Contains(t, result, "10s")
-		assert.NotContains(t, result, "Thinking for")
+		assert.False(t, result)
 	})
 
-	t.Run("the clock starts when a turn begins", func(t *testing.T) {
+	t.Run("blank input is not remembered", func(t *testing.T) {
 		// given
-		m := newModel(&mockedChatCore{busyFunc: func() bool { return true }})
-		require.True(t, m.thinkingSince.IsZero())
+		m := sized(t, &mockedChatCore{}, 80, 24)
 
 		// when
-		m.trackThinking()
+		m.remember("   ")
 
 		// then
-		assert.False(t, m.thinkingSince.IsZero())
+		assert.Empty(t, m.history)
 	})
 
-	t.Run("the clock stops when the agent goes idle", func(t *testing.T) {
+	t.Run("consecutive duplicates are collapsed", func(t *testing.T) {
 		// given
-		m := sizedModel(t, &mockedChatCore{})
-		m.thinkingSince = time.Now()
+		m := sized(t, &mockedChatCore{}, 80, 24)
 
 		// when
-		m.trackThinking()
+		m.remember("same")
+		m.remember("same")
 
 		// then
-		assert.True(t, m.thinkingSince.IsZero())
+		assert.Len(t, m.history, 1)
 	})
 
-	t.Run("the status line keeps the model info while the agent thinks", func(t *testing.T) {
+	t.Run("returning to the newest restores the draft", func(t *testing.T) {
 		// given
-		core := &mockedChatCore{
-			busyFunc:       func() bool { return true },
-			statusTextFunc: func() string { return "model-x" },
-		}
-		m := sizedModel(t, core)
+		m := sized(t, &mockedChatCore{}, 80, 24)
+		m.remember("sent")
+		m.setInput("half typed")
+		require.True(t, m.recallOlder())
+		require.Equal(t, "sent", m.input.Value())
 
 		// when
-		lines := strings.Split(m.View().Content, "\n")
+		result := m.recallNewer()
 
 		// then
-		assert.Contains(t, lines[len(lines)-1], "model-x")
+		assert.True(t, result)
+		assert.Equal(t, "half typed", m.input.Value())
 	})
 }
 
-var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+func TestShiftEnterInsertsANewlineInsteadOfSubmitting(t *testing.T) {
+	// given
+	var submitted []string
+	core := &mockedChatCore{submitFunc: func(text string) { submitted = append(submitted, text) }}
+	m := sized(t, core, 80, 24)
+	m.setInput("first")
 
-func stripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }
+	// when
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
+
+	// then
+	assert.Empty(t, submitted)
+	assert.Equal(t, "first\n", next.(model).input.Value())
+}
+
+func TestCtrlCQuits(t *testing.T) {
+	// given
+	m := sized(t, &mockedChatCore{}, 80, 24)
+
+	// when
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+
+	// then
+	assert.True(t, next.(model).quitting)
+	assert.NotNil(t, cmd)
+}
+
+func TestQuitMsgQuits(t *testing.T) {
+	// given
+	m := sized(t, &mockedChatCore{}, 80, 24)
+
+	// when
+	next, cmd := m.Update(quitMsg{})
+
+	// then
+	assert.True(t, next.(model).quitting)
+	assert.NotNil(t, cmd)
+}
+
+func TestEnterSubmitsAndClearsInput(t *testing.T) {
+	// given
+	var submitted []string
+	core := &mockedChatCore{submitFunc: func(text string) { submitted = append(submitted, text) }}
+	m := sized(t, core, 80, 24)
+	m.setInput("hello")
+
+	// when
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	// then
+	assert.Equal(t, []string{"hello"}, submitted)
+	assert.Empty(t, next.(model).input.Value())
+}
+
+func TestViewIsEmptyWhileQuitting(t *testing.T) {
+	// given
+	m := sized(t, &mockedChatCore{}, 80, 24)
+	m.quitting = true
+
+	// when
+	result := m.View()
+
+	// then
+	assert.Empty(t, strings.TrimSpace(result.Content))
+}

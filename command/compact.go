@@ -2,8 +2,8 @@ package command
 
 type compactCmd struct{}
 
-// Compact returns the /compact command: force context compaction. The outcome
-// is reported through the agent's feedback events, not by this command.
+// Compact returns the /compact command, which forces context compaction. The
+// outcome is reported in the transcript, not returned.
 func Compact() Command {
 	return compactCmd{}
 }

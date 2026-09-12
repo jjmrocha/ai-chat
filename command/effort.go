@@ -8,8 +8,8 @@ import (
 
 type effortCmd struct{}
 
-// Effort returns the /effort command: list the reasoning effort levels or
-// switch to one.
+// Effort returns the /effort command: with no argument it lists the reasoning
+// effort levels, otherwise it switches to the named one.
 func Effort() Command {
 	return effortCmd{}
 }
@@ -26,8 +26,6 @@ func (effortCmd) Args() string {
 	return "[level]"
 }
 
-// effortLevels are the rungs llm.Effort accepts; the llm package keeps its own
-// check unexported, so the command carries the list.
 var effortLevels = []string{"off", "low", "medium", "max"}
 
 func (effortCmd) Run(ctx Context, args string) {

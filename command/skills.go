@@ -2,7 +2,7 @@ package command
 
 type skillsCmd struct{ coll SkillsController }
 
-// Skills returns the /skills command bound to coll: list the available skills.
+// Skills returns the /skills command, which lists the skills in coll.
 func Skills(coll SkillsController) Command {
 	return skillsCmd{coll: coll}
 }
@@ -16,11 +16,5 @@ func (skillsCmd) Help() string {
 }
 
 func (c skillsCmd) Run(ctx Context, args string) {
-	names := c.coll.Skills()
-	if len(names) == 0 {
-		ctx.Print(Info, "No skills registered.")
-		return
-	}
-
-	ctx.Print(Info, listText("Skills", names))
+	printList(ctx, "Skills", "No skills registered.", c.coll.Skills())
 }

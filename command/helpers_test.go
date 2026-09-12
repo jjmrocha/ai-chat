@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 
-	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/jjmrocha/ai-toolkit/mcp"
 )
@@ -12,7 +11,6 @@ type mockedAgentController struct {
 	changeModelFunc     func(name string) error
 	changeEffortFunc    func(e llm.Effort) error
 	availableModelsFunc func() []string
-	modelInfoFunc       func() *agent.ModelInfo
 	compactFunc         func()
 }
 
@@ -35,13 +33,6 @@ func (m *mockedAgentController) AvailableModels() []string {
 		return nil
 	}
 	return m.availableModelsFunc()
-}
-
-func (m *mockedAgentController) ModelInfo() *agent.ModelInfo {
-	if m.modelInfoFunc == nil {
-		return nil
-	}
-	return m.modelInfoFunc()
 }
 
 func (m *mockedAgentController) Compact() {
@@ -120,3 +111,36 @@ func (m *mockedSkillsController) Skills() []string {
 	}
 	return m.skillsFunc()
 }
+
+type mockedQuitter struct {
+	quits int
+}
+
+func (m *mockedQuitter) Quit() { m.quits++ }
+
+type mockedRegistry struct {
+	commandsFunc func() []Command
+}
+
+func (m *mockedRegistry) Commands() []Command {
+	if m.commandsFunc == nil {
+		return nil
+	}
+	return m.commandsFunc()
+}
+
+type stubCommand struct {
+	name string
+	help string
+}
+
+func (s stubCommand) Name() string        { return s.name }
+func (s stubCommand) Help() string        { return s.help }
+func (s stubCommand) Run(Context, string) {}
+
+type argumentedStub struct {
+	stubCommand
+	args string
+}
+
+func (a argumentedStub) Args() string { return a.args }

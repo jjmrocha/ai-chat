@@ -10,3 +10,15 @@ func listText(header string, items []string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+func printList(ctx Context, header, empty string, items []string) {
+	if len(items) == 0 {
+		ctx.Print(Info, empty)
+		return
+	}
+	ctx.Print(Info, listText(header, items))
+}
+
+func printErr(ctx Context, err error) {
+	ctx.Print(Error, "Error: "+err.Error())
+}

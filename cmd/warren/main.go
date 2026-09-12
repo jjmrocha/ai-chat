@@ -1,14 +1,3 @@
-// Command warren launches a financial analyst backed by an ai-toolkit agent.
-//
-// It connects to OpenRouter, reading the API key from the OPEN_ROUTER_KEY
-// environment variable. Web tools and file tools are always on; market data
-// comes from the yfinance MCP server, which is stopped until /mcp on
-// yfinance-mcp. Needs the uvx executable on PATH.
-//
-// Usage:
-//
-//	export OPEN_ROUTER_KEY=sk-...
-//	go run ./cmd/warren
 package main
 
 import (
