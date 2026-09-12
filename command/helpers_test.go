@@ -56,11 +56,10 @@ type printedLine struct {
 }
 
 type mockedContext struct {
-	agentFunc       func() AgentController
-	printFunc       func(kind Kind, text string)
-	clearFunc       func() error
-	changeThemeFunc func(name string) error
-	printed         []printedLine
+	agentFunc func() AgentController
+	printFunc func(kind Kind, text string)
+	clearFunc func() error
+	printed   []printedLine
 }
 
 func (m *mockedContext) Agent() AgentController {
@@ -82,13 +81,6 @@ func (m *mockedContext) Clear() error {
 		return nil
 	}
 	return m.clearFunc()
-}
-
-func (m *mockedContext) ChangeTheme(name string) error {
-	if m.changeThemeFunc == nil {
-		return nil
-	}
-	return m.changeThemeFunc(name)
 }
 
 type mockedMCPController struct {

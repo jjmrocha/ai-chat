@@ -1,14 +1,16 @@
 // Package theme holds the color palette the UI applies when rendering a chat.
-// A Theme is plain data: the headless core stores the selected value and the UI
-// turns it into styles, so the core never depends on a styling library.
+// A Theme is plain data: the UI turns it into styles, so nothing below the UI
+// depends on a styling library.
+//
+// There is one palette and it cannot be switched. A fixed set of colors can
+// only be right for the background it was tuned against, and this code has no
+// way to know the user's — so the palette defers to the terminal's own instead
+// of picking for it.
 package theme
 
-import (
-	"slices"
-	"strings"
-)
-
-// Theme is a set of hex colors, one per styled element of the chat UI.
+// Theme is a set of colors, one per styled element of the chat UI. A color is
+// an ANSI index from the terminal's palette, or empty for its default text
+// color.
 type Theme struct {
 	HeaderName string
 	User       string
@@ -16,30 +18,6 @@ type Theme struct {
 	Error      string
 	Info       string
 	Activity   string
-	Rule       string
 	TurnSep    string
 	Telemetry  string
-}
-
-var themes = map[string]Theme{
-	"default":    Default,
-	"nord":       Nord,
-	"monokai":    Monokai,
-	"catppuccin": Catppuccin,
-}
-
-// ByName returns the theme registered under name, or false if unknown.
-func ByName(name string) (Theme, bool) {
-	t, ok := themes[strings.ToLower(name)]
-	return t, ok
-}
-
-// Names returns the sorted list of available theme names.
-func Names() []string {
-	out := make([]string, 0, len(themes))
-	for n := range themes {
-		out = append(out, n)
-	}
-	slices.Sort(out)
-	return out
 }

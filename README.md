@@ -1,6 +1,6 @@
 # ai-chat
 
-Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmrocha/ai-toolkit) agent; get a headless, testable chat core, a Bubble Tea TUI, a pluggable slash-command framework, themes, and MCP server management.
+Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmrocha/ai-toolkit) agent; get a headless, testable chat core, a Bubble Tea TUI, a pluggable slash-command framework, and MCP server management.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jjmrocha/ai-chat.svg)](https://pkg.go.dev/github.com/jjmrocha/ai-chat)
 [![Go 1.26+](https://img.shields.io/badge/go-1.26+-00ADD8)](https://go.dev/dl/)
@@ -9,7 +9,7 @@ Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmro
 ## Why ai-chat
 
 - **Headless core, not a monolith.** `chat.Chat` runs the transcript and drives the agent with no terminal attached — drive it from a test, a different UI, or the bundled TUI.
-- **Slash commands are pluggable.** Ship the built-ins (`/model`, `/effort`, `/mcp`, `/skills`, `/theme`, …) or implement `command.Command` and register your own. No forking required.
+- **Slash commands are pluggable.** Ship the built-ins (`/model`, `/effort`, `/mcp`, `/skills`, …) or implement `command.Command` and register your own. No forking required.
 - **Swappable renderer.** The `ui` package is one consumer of the core, wired through a single `Observer` interface. Replace it without touching your agent logic.
 - **MCP built in.** Register MCP servers and toggle them at runtime with `/mcp`.
 
@@ -91,8 +91,8 @@ Fuller examples live in [`cmd/`](cmd): [`ai-chat`](cmd/ai-chat/main.go) wires a 
 printed above a live region holding the thinking row, the title bar, the input and the
 status line, so the conversation ends up in the terminal's own scrollback: selection,
 copying and wheel scrolling are the terminal's, and work as they do for any other command's output. The trade-off is that
-printed lines are never repainted — a `/theme` switch colors only what follows it, and
-resizing the window leaves earlier markdown wrapped at the old width. `/clear` resets the
+printed lines are never repainted, so resizing the window leaves earlier markdown
+wrapped at the old width. `/clear` resets the
 session but leaves the conversation in the scrollback, still readable.
 
 Keys: `Enter` sends, `Shift+Enter` (or `Alt+Enter` / `Ctrl+J`) adds a line, `↑` / `↓` walk
@@ -135,7 +135,7 @@ func (pingCmd) Args() string { return "[message]" }   // renders as: /ping [mess
 have to match exactly — a `pingCmd` registered by value whose `Args()` is declared on
 `*pingCmd` compiles fine and silently renders as a bare `/ping`.
 
-`command.Context` gives a command access to the agent (`Agent()`), the transcript (`Print`), session reset (`Clear`), and theme switching (`ChangeTheme`).
+`command.Context` gives a command access to the agent (`Agent()`), the transcript (`Print`), and session reset (`Clear`).
 
 ### Register an MCP server
 
@@ -192,13 +192,18 @@ reaches the model only because `Add` put it there.
 > `skill_execute_file` tool runs files the folder ships with the authority and
 > environment of the chat process.
 
-### Add a theme
+### Colors
 
-```go
-core := chat.New("CHAT", ag, chat.WithTheme(theme.Nord))
-```
+There is one palette, `theme.Palette`, and it cannot be switched — not by the user, not
+by an option. A fixed set of colors can only be right for the background it was tuned
+against, and neither this library nor the program embedding it can know the user's. So
+every value is either an ANSI index, which the terminal's own profile defines, or empty,
+meaning the terminal's default text color.
 
-Built-ins: `theme.Default`, `theme.Nord`, `theme.Monokai`, `theme.Catppuccin`. Users switch at runtime with `/theme <name>`; `theme.Names()` lists them.
+Markdown replies follow the same rule, through glamour's `notty` style: every other
+style glamour ships is a fixed hex palette tuned for one background, while `notty` sets
+no color at all. The cost is that it conveys emphasis by re-emitting the markup — a
+`**bold**` reply keeps its asterisks — and highlights no syntax in fenced code blocks.
 
 ### Drive the core headless (for tests)
 
@@ -222,7 +227,6 @@ for _, line := range core.Transcript() {
 | `WithEffortCommand()` | `/effort [level]` | List reasoning effort levels (`off`, `low`, `medium`, `max`) or switch to one |
 | `WithClearCommand()` | `/clear` | Reset conversation |
 | `WithCompactCommand()` | `/compact` | Force context compaction |
-| `WithThemeCommand()` | `/theme [name]` | Show or switch theme |
 | `WithMCP(mgr)` | `/mcp [on\|off] [name]` | Show or toggle MCP servers |
 | `WithSkills(coll)` | `/skills` | List available skills |
 
@@ -232,7 +236,7 @@ for _, line := range core.Transcript() {
 |---|---|
 | `chat` | Headless core: transcript, command dispatch, agent feedback, status. |
 | `command` | Slash-command framework and the built-in commands. |
-| `theme` | Color palettes and lookup helpers. |
+| `theme` | The color palette the UI renders with. |
 | `ui` | Bubble Tea TUI renderer (`ui.Run`). |
 | `cmd` | Three reference entry points: `ai-chat` (generic), `warren` (financial analyst), `joe` (coding agent). |
 

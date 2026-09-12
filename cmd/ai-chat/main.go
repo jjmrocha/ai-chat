@@ -34,7 +34,7 @@ func main() {
 func run() error {
 	client, err := llm.New(llm.Config{
 		Provider: llm.ProviderOllama,
-		Model:    "granite4.2-8b:m1",
+		Model:    "gemma4:31b-cloud",
 		Models:   []string{"granite4.2-8b:m1", "gemma4:31b-cloud"},
 		Effort:   llm.EffortOff,
 	})
@@ -94,7 +94,6 @@ func run() error {
 		chat.WithDefaultCommands(),
 		chat.WithMCP(mcpMng),
 		chat.WithSkills(skillColl),
-		chat.WithThemeCommand(),
 	)
 
 	return ui.Run(context.Background(), core)

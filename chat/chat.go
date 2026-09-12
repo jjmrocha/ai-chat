@@ -17,7 +17,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/jjmrocha/ai-chat/command"
-	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 )
@@ -66,7 +65,6 @@ type Chat struct {
 	// between calls. Tool calls run one at a time, so one is always enough.
 	pendingTool string
 	lastMeta    agent.Metadata
-	theme       theme.Theme
 }
 
 // New builds a Chat over ag and installs itself as the agent's feedback sink so
@@ -82,7 +80,6 @@ func newChat(name string, opts ...Option) *Chat {
 	c := &Chat{
 		name:         name,
 		baseCtx:      context.Background(),
-		theme:        theme.Default,
 		commands:     map[string]command.Command{},
 		telemetryFmt: defaultTelemetryFormatter,
 		statusFmt:    defaultStatusFormatter,
@@ -103,13 +100,6 @@ func (c *Chat) register(cmd command.Command) {
 
 // Name is the display name given at construction.
 func (c *Chat) Name() string { return c.name }
-
-// Theme returns the active color palette.
-func (c *Chat) Theme() theme.Theme {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.theme
-}
 
 // SetObserver registers the single observer notified on transcript changes.
 func (c *Chat) SetObserver(o Observer) {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
-	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/stretchr/testify/assert"
@@ -215,30 +214,6 @@ func TestChatName(t *testing.T) {
 	assert.Equal(t, "test-chat", result)
 }
 
-func TestChatTheme(t *testing.T) {
-	t.Run("default theme", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		result := c.Theme()
-
-		// then
-		assert.Equal(t, theme.Default, result)
-	})
-
-	t.Run("custom theme via option", func(t *testing.T) {
-		// given
-		c := newChat("test", WithTheme(theme.Nord))
-
-		// when
-		result := c.Theme()
-
-		// then
-		assert.Equal(t, theme.Nord, result)
-	})
-}
-
 func TestChatBusy(t *testing.T) {
 	// given
 	c := newChat("test")
@@ -420,31 +395,6 @@ func TestChatClear(t *testing.T) {
 		// then
 		assert.Error(t, err)
 		assert.NotEmpty(t, c.Transcript())
-	})
-}
-
-func TestChatChangeTheme(t *testing.T) {
-	t.Run("valid theme", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		err := c.ChangeTheme("nord")
-
-		// then
-		assert.NoError(t, err)
-		assert.Equal(t, theme.Nord, c.Theme())
-	})
-
-	t.Run("invalid theme", func(t *testing.T) {
-		// given
-		c := newChat("test")
-
-		// when
-		err := c.ChangeTheme("bogus")
-
-		// then
-		assert.Error(t, err)
 	})
 }
 

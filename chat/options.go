@@ -2,17 +2,11 @@ package chat
 
 import (
 	"github.com/jjmrocha/ai-chat/command"
-	"github.com/jjmrocha/ai-chat/theme"
 )
 
 // Option configures a Chat at construction. Beyond the mandatory name and agent,
 // every feature is opt-in through an Option.
 type Option func(*Chat)
-
-// WithTheme sets the color palette the UI applies. Defaults to theme.Default.
-func WithTheme(t theme.Theme) Option {
-	return func(c *Chat) { c.theme = t }
-}
 
 // WithCommand registers a custom slash command. The escape hatch for commands
 // beyond the built-ins.
@@ -32,9 +26,6 @@ func WithCompactCommand() Option { return WithCommand(command.Compact()) }
 // WithClearCommand registers /clear.
 func WithClearCommand() Option { return WithCommand(command.Clear()) }
 
-// WithThemeCommand registers /theme.
-func WithThemeCommand() Option { return WithCommand(command.Theme()) }
-
 // WithMCP registers /mcp bound to mgr, so the coupling between the command and
 // its manager lives in a single option.
 func WithMCP(mgr command.MCPController) Option {
@@ -48,9 +39,8 @@ func WithSkills(coll command.SkillsController) Option {
 }
 
 // WithDefaultCommands registers every built-in command that needs no external
-// dependency: /model, /effort, /compact and /clear. /theme needs an explicit
-// opt-in, /mcp a manager and /skills a collection; register those separately
-// with WithThemeCommand, WithMCP and WithSkills.
+// dependency: /model, /effort, /compact and /clear. /mcp needs a manager and
+// /skills a collection; register those separately with WithMCP and WithSkills.
 func WithDefaultCommands() Option {
 	return func(c *Chat) {
 		for _, cmd := range []command.Command{

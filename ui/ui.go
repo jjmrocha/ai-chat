@@ -66,7 +66,6 @@ type styles struct {
 	err        lipgloss.Style
 	activity   lipgloss.Style
 	telemetry  lipgloss.Style
-	rule       lipgloss.Style
 	turnSep    lipgloss.Style
 	footer     lipgloss.Style
 }
@@ -82,7 +81,6 @@ func newStyles(t theme.Theme) styles {
 		err:        fg(t.Error),
 		activity:   fg(t.Activity).Italic(true),
 		telemetry:  fg(t.Telemetry).Italic(true),
-		rule:       fg(t.Rule),
 		turnSep:    fg(t.TurnSep),
 		footer:     fg(t.Footer).Italic(true),
 	}
@@ -90,7 +88,6 @@ func newStyles(t theme.Theme) styles {
 
 type chatCore interface {
 	Name() string
-	Theme() theme.Theme
 	Transcript() []chat.Line
 	Busy() bool
 	StatusText() string
@@ -106,6 +103,7 @@ type model struct {
 	spinner  spinner.Model
 	renderer *glamour.TermRenderer
 	width    int
+	height   int
 	ready    bool
 
 	// printed counts the transcript lines already sent to the scrollback. The
@@ -133,12 +131,10 @@ type model struct {
 	history []string
 	histIdx int
 	draft   string
-
-	lastTheme theme.Theme
 }
 
 func newModel(core chatCore) model {
-	sty := newStyles(core.Theme())
+	sty := newStyles(theme.Palette)
 
 	ti := textarea.New()
 	ti.ShowLineNumbers = false
@@ -151,24 +147,50 @@ func newModel(core chatCore) model {
 		key.WithHelp("shift+enter", "insert newline"),
 	)
 	ti.Prompt = inputIndent
+	ti.SetStyles(inputStyles(theme.Palette))
 	ti.Focus()
 
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(core.Theme().Info))
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Palette.Info))
 
 	return model{
-		core:      core,
-		styles:    sty,
-		lastTheme: core.Theme(),
-		input:     ti,
-		spinner:   sp,
-		renderer:  newRenderer(0),
+		core:     core,
+		styles:   sty,
+		input:    ti,
+		spinner:  sp,
+		renderer: newRenderer(0),
 	}
 }
 
+// inputStyles strips the textarea's painted background and fixed foregrounds.
+// textarea.New installs DefaultDarkStyles, whose focused CursorLine paints an
+// opaque ANSI-0 block behind the line being typed and whose Prompt is ANSI 7;
+// on a light profile that is dark text on black under a white-on-white prompt.
+// Letting the terminal's own background and text colour through is correct on
+// any profile. The cursor takes the palette's accent so it stays findable, and
+// the placeholder takes TurnSep, the dimmest value in the palette, so prompt
+// text never reads as something the user typed.
+func inputStyles(t theme.Theme) textarea.Styles {
+	s := textarea.DefaultDarkStyles()
+	for _, state := range []*textarea.StyleState{&s.Focused, &s.Blurred} {
+		state.Base = lipgloss.NewStyle()
+		state.CursorLine = lipgloss.NewStyle()
+		state.Prompt = lipgloss.NewStyle()
+		state.Text = lipgloss.NewStyle()
+		state.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TurnSep))
+	}
+	s.Cursor.Color = lipgloss.Color(t.Info)
+	return s
+}
+
+// newRenderer builds the markdown renderer. The style is fixed: glamour's other
+// builtins are hex palettes tuned for one background, and this code has no way
+// to know the user's, while notty sets no colour at all. The cost is that it
+// conveys emphasis by re-emitting the markup — "**bold**" keeps its asterisks —
+// and highlights no syntax.
 func newRenderer(width int) *glamour.TermRenderer {
 	r, _ := glamour.NewTermRenderer(
-		glamour.WithStandardStyle("dark"),
+		glamour.WithStandardStyle("notty"),
 		glamour.WithWordWrap(width),
 	)
 	return r
@@ -185,6 +207,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderer = newRenderer(msg.Width)
 		}
 		m.width = msg.Width
+		m.height = msg.Height
 		m.input.SetWidth(max(msg.Width-2, 0))
 		m.ready = true
 		return m.emit()
@@ -288,22 +311,27 @@ func (m model) View() tea.View {
 	content := "Initializing…"
 	if m.ready {
 		m.input.Placeholder = m.placeholder()
-		// The thinking row opens the live region and keeps its line while the
-		// agent idles, so the layout never jumps and printed blocks always have
-		// a blank line between them and the title bar.
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			m.thinkingLine(),
-			m.titleBar(),
-			m.input.View(),
-			m.styles.headerName.Render(m.hrule()),
-			m.styles.footer.Render(m.core.StatusText()),
-		)
+		content = m.liveRegion()
 	}
 
 	v := tea.NewView(content)
 	v.AltScreen = false
 	v.MouseMode = tea.MouseModeNone
 	return v
+}
+
+// liveRegion is everything held below the scrollback: the thinking row, the
+// title bar, the input, and the status bar. The thinking row opens it and keeps
+// its line while the agent idles, so the layout never jumps and printed blocks
+// always have a blank line between them and the title bar.
+func (m model) liveRegion() string {
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.thinkingLine(),
+		m.titleBar(),
+		m.input.View(),
+		m.styles.headerName.Render(m.hrule()),
+		m.styles.footer.Render(m.core.StatusText()),
+	)
 }
 
 func (m model) hrule() string { return strings.Repeat("─", m.width) }
@@ -325,8 +353,6 @@ func (m model) titleBar() string {
 // emit sends every transcript line not yet printed to the scrollback and, when
 // the transcript has shrunk under it, wipes the screen first.
 func (m model) emit() (tea.Model, tea.Cmd) {
-	m.restyle()
-
 	if m.printing {
 		return m, nil
 	}
@@ -345,12 +371,48 @@ func (m model) emit() (tea.Model, tea.Cmd) {
 	m.printed += len(blocks)
 	m.printing = true
 
+	limit := m.printLimit()
 	cmds := make([]tea.Cmd, 0, len(blocks)+1)
 	for _, b := range blocks {
-		cmds = append(cmds, tea.Println(b))
+		for _, chunk := range chunkBlock(b, limit) {
+			cmds = append(cmds, tea.Println(chunk))
+		}
 	}
 	cmds = append(cmds, func() tea.Msg { return printedMsg{} })
 	return m, tea.Sequence(cmds...)
+}
+
+// printLimit is how many lines one printed block may carry. Bubble Tea's inline
+// renderer makes room for a block by scrolling the live region out of the way in
+// a single insert, and a terminal clamps that scroll at the top of the screen:
+// ask for more rows than are free and the live region is left stranded in the
+// scrollback, trailed by the blank lines the insert could not fill. Zero means
+// the height is not known yet, so nothing is split.
+func (m model) printLimit() int {
+	if m.height == 0 {
+		return 0
+	}
+
+	return max(m.height-lipgloss.Height(m.liveRegion()), 1)
+}
+
+// chunkBlock splits a block into pieces no taller than limit lines, each of
+// which the renderer can make room for on its own. A limit of zero or less
+// leaves the block whole. Rejoining the pieces with a newline reproduces the
+// block, so nothing is added or lost by the split.
+func chunkBlock(block string, limit int) []string {
+	lines := strings.Split(block, "\n")
+	if limit <= 0 || len(lines) <= limit {
+		return []string{block}
+	}
+
+	chunks := make([]string, 0, (len(lines)+limit-1)/limit)
+	for len(lines) > limit {
+		chunks = append(chunks, strings.Join(lines[:limit], "\n"))
+		lines = lines[limit:]
+	}
+
+	return append(chunks, strings.Join(lines, "\n"))
 }
 
 // pending renders the transcript lines that have not reached the terminal yet.
@@ -366,18 +428,6 @@ func (m model) pending() []string {
 		blocks = append(blocks, "\n"+m.renderBlock(ln))
 	}
 	return blocks
-}
-
-// restyle repoints the styles at the active theme. Lines already in the
-// scrollback keep the palette they were printed with; only new ones change.
-func (m *model) restyle() {
-	t := m.core.Theme()
-	if m.lastTheme == t {
-		return
-	}
-	m.styles = newStyles(t)
-	m.lastTheme = t
-	m.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Info))
 }
 
 func (m model) renderBlock(ln chat.Line) string {

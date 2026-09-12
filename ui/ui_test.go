@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,8 +32,6 @@ func (m *mockedChatCore) Name() string {
 	}
 	return m.nameFunc()
 }
-
-func (m *mockedChatCore) Theme() theme.Theme { return theme.Default }
 
 func (m *mockedChatCore) Transcript() []chat.Line {
 	if m.transcriptFunc == nil {
@@ -114,8 +114,9 @@ func TestRenderBlock(t *testing.T) {
 }
 
 func TestRenderActivityBlock(t *testing.T) {
-	t.Run("styles the response line apart from the call that produced it", func(t *testing.T) {
-		// given
+	t.Run("keeps the call and its response as one block", func(t *testing.T) {
+		// given: the palette gives Activity and Telemetry the terminal's default
+		// text colour, so the ⎿ and the indent carry the separation, not colour.
 		m := sizedModel(t, &mockedChatCore{})
 		line := chat.Line{Kind: command.Activity, Text: "● file_read(path=\"a.go\")\n  ⎿ <4.1 KB> · 0.3s"}
 
@@ -127,8 +128,8 @@ func TestRenderActivityBlock(t *testing.T) {
 		require.True(t, found, "the block keeps both lines")
 		assert.Contains(t, call, "file_read")
 		assert.Contains(t, response, "4.1 KB")
-		assert.NotEqual(t, styleOf(call), styleOf(response),
-			"the response reads dimmer than the call")
+		assert.True(t, strings.HasPrefix(stripANSI(response), "  ⎿ "),
+			"the response is indented under the call it closes")
 	})
 
 	t.Run("leaves a single-line activity alone", func(t *testing.T) {
@@ -145,14 +146,125 @@ func TestRenderActivityBlock(t *testing.T) {
 	})
 }
 
-// styleOf returns the leading ANSI escape sequence of a rendered line, which is
-// what distinguishes one theme colour from another.
-func styleOf(line string) string {
-	_, rest, found := strings.Cut(line, "\x1b")
-	if !found {
-		return ""
+func TestInputPaintsNoBackground(t *testing.T) {
+	// bubbles' textarea.New installs DefaultDarkStyles, whose focused CursorLine
+	// paints an opaque ANSI-0 block behind the line being typed. On a light
+	// profile that is dark text on black — the user cannot see what they type.
+	// The input must inherit the terminal's own background instead.
+	m := sizedModel(t, &mockedChatCore{})
+	m.input.SetValue("typing")
+
+	// when
+	result := m.input.View()
+
+	// then
+	assert.NotRegexp(t, backgroundSGR, result, "the input must not paint a background")
+	assert.Contains(t, result, "typing")
+}
+
+// backgroundSGR matches every way SGR sets a background: 40-47 basic,
+// 100-107 bright, and 48;5;n / 48;2;r;g;b for indexed and truecolor.
+var backgroundSGR = regexp.MustCompile(`\x1b\[[0-9;]*(4[0-7]|10[0-7]|48;)`)
+
+func TestChunkBlock(t *testing.T) {
+	block := "l1\nl2\nl3\nl4\nl5"
+
+	testCases := []struct {
+		name     string
+		block    string
+		limit    int
+		expected []string
+	}{
+		{
+			name:     "an unknown height leaves the block whole",
+			block:    block,
+			limit:    0,
+			expected: []string{block},
+		},
+		{
+			name:     "a block that fits is not split",
+			block:    block,
+			limit:    5,
+			expected: []string{block},
+		},
+		{
+			name:     "a taller block is split to the limit",
+			block:    block,
+			limit:    2,
+			expected: []string{"l1\nl2", "l3\nl4", "l5"},
+		},
+		{
+			name:     "an exact multiple splits evenly, with no empty chunk",
+			block:    "l1\nl2\nl3\nl4",
+			limit:    2,
+			expected: []string{"l1\nl2", "l3\nl4"},
+		},
+		{
+			name:     "a single line survives the smallest limit",
+			block:    "only",
+			limit:    1,
+			expected: []string{"only"},
+		},
 	}
-	seq, _, _ := strings.Cut(rest, "m")
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// when
+			result := chunkBlock(tc.block, tc.limit)
+
+			// then
+			assert.Equal(t, tc.expected, result)
+			assert.Equal(t, tc.block, strings.Join(result, "\n"),
+				"rejoining the chunks must reproduce the block exactly")
+		})
+	}
+}
+
+func TestPrintLimitLeavesRoomForTheLiveRegion(t *testing.T) {
+	t.Run("an unsized model imposes no limit", func(t *testing.T) {
+		// given
+		m := newModel(&mockedChatCore{})
+
+		// then
+		assert.Zero(t, m.printLimit())
+	})
+
+	t.Run("a sized model reserves the live region's height", func(t *testing.T) {
+		// given
+		m := sizedModel(t, &mockedChatCore{})
+
+		// when
+		limit := m.printLimit()
+
+		// then
+		assert.Positive(t, limit)
+		assert.Less(t, limit, 24, "the live region must not be printed over")
+		assert.Equal(t, 24-lipgloss.Height(m.liveRegion()), limit)
+	})
+}
+
+func TestPlaceholderIsDimmed(t *testing.T) {
+	// The placeholder is not typed text and must not read as though it were, so
+	// it takes TurnSep — the palette's dimmest value — rather than the colour
+	// the transcript uses for words.
+	m := sizedModel(t, &mockedChatCore{})
+	m.input.Placeholder = idlePlaceholder
+	m.input.SetValue("")
+
+	// when
+	result := m.input.View()
+
+	// then
+	assert.Contains(t, result, "end a message…  (/help for commands)",
+		"the cursor styles the first character on its own")
+	assert.Contains(t, result, ansiFor(theme.Palette.TurnSep))
+}
+
+// ansiFor renders a probe in colour so a test can look for that exact colour in
+// output, without hardcoding lipgloss's escape-sequence format.
+func ansiFor(colour string) string {
+	rendered := lipgloss.NewStyle().Foreground(lipgloss.Color(colour)).Render("x")
+	seq, _, _ := strings.Cut(rendered, "x")
 	return seq
 }
 
@@ -812,3 +924,7 @@ func TestModelThinking(t *testing.T) {
 		assert.Contains(t, lines[len(lines)-1], "model-x")
 	})
 }
+
+var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }

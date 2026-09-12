@@ -17,7 +17,6 @@ import (
 	"os"
 
 	"github.com/jjmrocha/ai-chat/chat"
-	"github.com/jjmrocha/ai-chat/theme"
 	"github.com/jjmrocha/ai-chat/ui"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
@@ -103,7 +102,6 @@ func run() error {
 		chat.WithDefaultCommands(),
 		chat.WithMCP(mcpMng),
 		chat.WithSkills(skillColl),
-		chat.WithTheme(theme.Monokai),
 	)
 
 	return ui.Run(ctx, core)
