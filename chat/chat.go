@@ -15,6 +15,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -52,6 +53,8 @@ type Observer interface {
 	Quit()
 }
 
+var errCancelled = errors.New("cancelled by user")
+
 type agentBackend interface {
 	Process(ctx context.Context, input string) (*agent.Response, error)
 	ChangeModel(name string) error
@@ -86,6 +89,8 @@ type Chat struct {
 	observer   Observer
 	busy       bool
 	queue      []string
+	cancelTurn context.CancelCauseFunc
+	cancelling bool
 
 	pendingTool string
 	lastMeta    agent.Metadata
@@ -206,6 +211,28 @@ func (c *Chat) Queued() bool {
 	return len(c.queue) > 0
 }
 
+// Cancel stops the running agent turn and discards all queued input. The turn
+// ends with a "Cancelled." line unless its reply had already arrived. A running
+// slash command is not interrupted, and Cancel does nothing when idle.
+func (c *Chat) Cancel() {
+	c.mu.Lock()
+	c.queue = nil
+	if c.cancelTurn != nil && !c.cancelling {
+		c.cancelling = true
+		c.cancelTurn(errCancelled)
+	}
+	c.mu.Unlock()
+	c.notify()
+}
+
+// Cancelling reports whether [Chat.Cancel] was called and the running turn has
+// not yet returned. A front-end can show it in place of progress detail.
+func (c *Chat) Cancelling() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cancelling
+}
+
 // LastMetadata returns the metadata of the most recent successful turn. It is
 // the zero value before the first turn completes and after [Chat.Clear].
 func (c *Chat) LastMetadata() agent.Metadata {
@@ -295,11 +322,20 @@ func (c *Chat) process(ctx context.Context, text string) {
 func (c *Chat) turn(ctx context.Context, text string) {
 	c.append(command.User, text)
 
-	resp, err := c.agent.Process(ctx, text)
+	turnCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	c.mu.Lock()
+	c.cancelTurn = cancel
+	c.mu.Unlock()
+
+	resp, err := c.agent.Process(turnCtx, text)
 
 	c.closeToolCall(formatToolResult("", nil, 0))
 
 	c.mu.Lock()
+	c.cancelTurn = nil
+	c.cancelling = false
 	if err == nil && resp != nil {
 		c.lastMeta = resp.Metadata
 	}
@@ -307,6 +343,8 @@ func (c *Chat) turn(ctx context.Context, text string) {
 	c.mu.Unlock()
 
 	switch {
+	case err != nil && errors.Is(context.Cause(turnCtx), errCancelled):
+		c.append(command.Info, "Cancelled.")
 	case err != nil:
 		c.append(command.Error, "Error: "+err.Error())
 	case resp != nil:

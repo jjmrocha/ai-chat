@@ -128,7 +128,7 @@ the window leaves earlier markdown wrapped at the old width. `/clear` resets the
 but leaves the conversation in the scrollback, still readable.
 
 Keys: `Enter` sends, `Shift+Enter` (or `Alt+Enter` / `Ctrl+J`) adds a line, `↑` / `↓` walk
-prompt history, `Ctrl+C` quits.
+prompt history, `Esc` cancels the running turn and drops queued prompts, `Ctrl+C` quits.
 
 ### Colors
 

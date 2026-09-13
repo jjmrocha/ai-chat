@@ -14,8 +14,10 @@ type mockedChatCore struct {
 	queuedFunc        func() bool
 	pendingFunc       func() string
 	submitFunc        func(text string)
+	cancellingFunc    func() bool
 
-	busy atomic.Bool
+	busy    atomic.Bool
+	cancels atomic.Int32
 }
 
 func (m *mockedChatCore) Name() string {
@@ -66,6 +68,15 @@ func (m *mockedChatCore) Submit(text string) {
 	if m.submitFunc != nil {
 		m.submitFunc(text)
 	}
+}
+
+func (m *mockedChatCore) Cancel() { m.cancels.Add(1) }
+
+func (m *mockedChatCore) Cancelling() bool {
+	if m.cancellingFunc == nil {
+		return false
+	}
+	return m.cancellingFunc()
 }
 
 func linesFrom(all []chat.Line) func(int) []chat.Line {

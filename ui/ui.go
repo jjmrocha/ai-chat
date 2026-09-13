@@ -13,7 +13,8 @@
 // earlier markdown wrapped at the old width.
 //
 // Keys: Enter sends, Shift+Enter (or Alt+Enter, Ctrl+J) inserts a newline, Up
-// and Down walk prompt history, Ctrl+C quits.
+// and Down walk prompt history, Esc cancels the running turn and drops queued
+// prompts, Ctrl+C quits.
 //
 // Colors come from one fixed palette that cannot be switched. Every value is
 // either an ANSI index, which the terminal's own profile defines, or empty,
@@ -112,6 +113,8 @@ type chatCore interface {
 	Queued() bool
 	PendingTool() string
 	Submit(text string)
+	Cancel()
+	Cancelling() bool
 }
 
 type model struct {
@@ -239,6 +242,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+		case "esc":
+			if m.core.Busy() {
+				m.core.Cancel()
+			}
+			return m, nil
 		case "enter":
 			text := m.input.Value()
 			m.input.Reset()
@@ -459,6 +467,9 @@ func (m model) thinkingLine() string {
 	label := "Thinking for " + elapsed.String()
 	if pending := m.core.PendingTool(); pending != "" {
 		label = pending + " · " + elapsed.String()
+	}
+	if m.core.Cancelling() {
+		label = "Cancelling…"
 	}
 
 	return m.spinner.View() + m.styles.footer.Render(" "+label)

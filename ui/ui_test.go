@@ -591,3 +591,62 @@ func TestViewIsEmptyWhileQuitting(t *testing.T) {
 	// then
 	assert.Empty(t, strings.TrimSpace(result.Content))
 }
+
+func TestEscCancelsOnlyWhileBusy(t *testing.T) {
+	tests := []struct {
+		name            string
+		busy            bool
+		expectedCancels int32
+	}{
+		{name: "busy core is cancelled", busy: true, expectedCancels: 1},
+		{name: "idle core is left alone", busy: false, expectedCancels: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			core := &mockedChatCore{}
+			m := sized(t, core, 80, 24)
+			core.busy.Store(tc.busy)
+
+			// when
+			m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+			// then
+			assert.Equal(t, tc.expectedCancels, core.cancels.Load())
+		})
+	}
+}
+
+func TestEscLeavesTheInputUntouched(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	m.setInput("draft")
+
+	// when
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	// then
+	assert.Equal(t, "draft", next.(model).input.Value())
+}
+
+func TestThinkingLineShowsCancellingOverThePendingTool(t *testing.T) {
+	// given
+	core := &mockedChatCore{
+		pendingFunc:    func() string { return "read(a.go)" },
+		cancellingFunc: func() bool { return true },
+	}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	next, _ := m.Update(refreshMsg{})
+
+	// when
+	result := next.(model).thinkingLine()
+
+	// then
+	assert.Contains(t, result, "Cancelling…")
+	assert.NotContains(t, result, "read(a.go)")
+	assert.NotContains(t, result, "Thinking for")
+}

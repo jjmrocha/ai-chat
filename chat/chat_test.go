@@ -415,3 +415,164 @@ func (g gatedCommand) Run(command.Context, string) {
 	g.started <- g.name
 	<-g.release
 }
+
+func blockingUntilCancelled(started chan<- bool) func(context.Context, string) (*agent.Response, error) {
+	return func(ctx context.Context, _ string) (*agent.Response, error) {
+		select {
+		case started <- true:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+}
+
+func TestCancelStopsTheRunningTurn(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	backend := &mockedAgentBackend{processFunc: blockingUntilCancelled(started)}
+	c, _ := newTestChat(t, backend)
+	c.Submit("hello")
+	<-started
+
+	// when
+	c.Cancel()
+
+	// then
+	waitIdle(t, c)
+	lines := c.Transcript()
+	require.NotEmpty(t, lines)
+	last := lines[len(lines)-1]
+	assert.Equal(t, command.Info, last.Kind)
+	assert.Equal(t, "Cancelled.", last.Text)
+	assert.False(t, c.Cancelling())
+}
+
+func TestCancellingIsReportedUntilTheTurnReturns(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(ctx context.Context, _ string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return nil, ctx.Err()
+		},
+	}
+	c, _ := newTestChat(t, backend)
+	c.Submit("hello")
+	<-started
+
+	// when
+	c.Cancel()
+
+	// then
+	assert.True(t, c.Cancelling())
+	close(release)
+	waitIdle(t, c)
+	assert.False(t, c.Cancelling())
+}
+
+func TestCancelDropsQueuedInput(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	backend := &mockedAgentBackend{processFunc: blockingUntilCancelled(started)}
+	c, _ := newTestChat(t, backend)
+	c.Submit("first")
+	<-started
+	c.Submit("second")
+	c.Submit("third")
+
+	// when
+	c.Cancel()
+
+	// then
+	waitIdle(t, c)
+	assert.False(t, c.Queued())
+	assert.Equal(t, []string{"first"}, backend.inputs())
+}
+
+func TestTurnErrorsOtherThanCancelAreReported(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, c *Chat, backend *mockedAgentBackend)
+	}{
+		{
+			name: "backend failure",
+			prepare: func(_ *testing.T, _ *Chat, backend *mockedAgentBackend) {
+				backend.processFunc = func(context.Context, string) (*agent.Response, error) {
+					return nil, errors.New("boom")
+				}
+			},
+		},
+		{
+			name: "base context cancelled",
+			prepare: func(t *testing.T, c *Chat, backend *mockedAgentBackend) {
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+				c.SetContext(ctx)
+				backend.processFunc = func(ctx context.Context, _ string) (*agent.Response, error) {
+					cancel()
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			backend := &mockedAgentBackend{}
+			c, _ := newTestChat(t, backend)
+			tc.prepare(t, c, backend)
+
+			// when
+			c.Submit("hello")
+
+			// then
+			waitIdle(t, c)
+			lines := c.Transcript()
+			require.NotEmpty(t, lines)
+			last := lines[len(lines)-1]
+			assert.Equal(t, command.Error, last.Kind)
+			assert.Contains(t, last.Text, "Error: ")
+		})
+	}
+}
+
+func TestCancelArrivingWithTheReplyKeepsTheReply(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+	backend.processFunc = func(context.Context, string) (*agent.Response, error) {
+		c.Cancel()
+		return &agent.Response{Content: "answer"}, nil
+	}
+
+	// when
+	c.Submit("hello")
+
+	// then
+	waitIdle(t, c)
+	var texts []string
+	for _, ln := range c.Transcript() {
+		texts = append(texts, ln.Text)
+	}
+	assert.Contains(t, texts, "answer")
+	assert.NotContains(t, texts, "Cancelled.")
+}
+
+func TestCancelWhileIdleChangesNothing(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Cancel()
+
+	// then
+	assert.Empty(t, c.Transcript())
+	assert.False(t, c.Cancelling())
+	assert.False(t, c.Busy())
+}
