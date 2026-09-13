@@ -138,10 +138,11 @@ against, and neither this library nor the program embedding it can know the user
 every value is either an ANSI index, which the terminal's own profile defines, or empty,
 meaning the terminal's default text color.
 
-Markdown replies follow the same rule, through glamour's `notty` style: every other style
-glamour ships is a fixed hex palette tuned for one background, while `notty` sets no color
-at all. The cost is that it conveys emphasis by re-emitting the markup — a `**bold**`
-reply keeps its asterisks — and highlights no syntax in fenced code blocks.
+Markdown replies follow the same rule. They use glamour's `dark` layout with every color
+replaced by a palette value: bold, italic and strikethrough render as text attributes,
+links show underlined text followed by the URL, and fenced code blocks are highlighted in
+the 16 basic ANSI colors. Glamour cannot nest styles, so code inside bold or a link loses
+the outer style.
 
 ## Recipes
 

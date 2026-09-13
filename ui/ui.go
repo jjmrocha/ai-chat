@@ -20,9 +20,8 @@
 // meaning the terminal's default text color — a fixed set of hex colors can
 // only be right for the background it was tuned against, and neither this
 // package nor the program embedding it can know the user's. Markdown replies
-// follow the same rule through glamour's notty style, which sets no color at
-// all; the cost is that emphasis shows as the original markup and fenced code
-// is not syntax-highlighted.
+// follow the same rule: glamour's dark layout with every color taken from the
+// palette, and fenced code highlighted in the 16 basic ANSI colors.
 package ui
 
 import (
@@ -183,7 +182,8 @@ func inputStyles() textarea.Styles {
 
 func newRenderer(width int) *glamour.TermRenderer {
 	r, _ := glamour.NewTermRenderer(
-		glamour.WithStandardStyle("notty"),
+		glamour.WithStyles(markdownStyle(defaultPalette)),
+		glamour.WithChromaFormatter("terminal16"),
 		glamour.WithWordWrap(width),
 	)
 	return r
