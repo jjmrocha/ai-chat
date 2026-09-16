@@ -177,7 +177,7 @@ func TestPendingToolIsClearedAfterReturn(t *testing.T) {
 	assert.Empty(t, c.PendingTool())
 }
 
-func TestContextCompactedLineHasNoGlyph(t *testing.T) {
+func TestContextCompactedReadsLikeTheOtherSessionNotices(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
 	c, _ := newTestChat(t, backend)
@@ -188,8 +188,8 @@ func TestContextCompactedLineHasNoGlyph(t *testing.T) {
 	// then
 	lines := c.Transcript()
 	require.Len(t, lines, 1)
-	assert.Equal(t, command.Activity, lines[0].Kind)
-	assert.Equal(t, "context compacted", lines[0].Text)
+	assert.Equal(t, command.Info, lines[0].Kind)
+	assert.Equal(t, "Context compacted.", lines[0].Text)
 	assert.Empty(t, lines[0].Detail)
 }
 

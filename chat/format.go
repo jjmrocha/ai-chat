@@ -76,10 +76,10 @@ func defaultTelemetryFormatter(meta agent.Metadata) string {
 		parts = append(parts, plural(meta.ToolCalls, "tool call"))
 	}
 	if meta.LLMDuration > 0 {
-		parts = append(parts, formatDuration(meta.LLMDuration)+" llm")
+		parts = append(parts, FormatDuration(meta.LLMDuration)+" llm")
 	}
 	if meta.ToolDuration > 0 {
-		parts = append(parts, formatDuration(meta.ToolDuration)+" tools")
+		parts = append(parts, FormatDuration(meta.ToolDuration)+" tools")
 	}
 	if tok := tokenPart(meta); tok != "" {
 		parts = append(parts, tok)
@@ -165,16 +165,19 @@ const (
 func formatToolResult(result string, err error, elapsed time.Duration) string {
 	line := toolOutcome(result, err, elapsed)
 	if elapsed > 0 {
-		line += " · " + formatDuration(elapsed)
+		line += " · " + FormatDuration(elapsed)
 	}
 
 	return line
 }
 
-func formatDuration(d time.Duration) string {
+// FormatDuration renders d the way the transcript and the front-end's progress
+// line both show elapsed time: whole seconds and above in Go's own notation
+// ("2m2s"), shorter spans in milliseconds ("340ms", "<1ms").
+func FormatDuration(d time.Duration) string {
 	switch {
 	case d >= time.Second:
-		return fmt.Sprintf("%.1fs", d.Seconds())
+		return d.Truncate(time.Second).String()
 	case d >= time.Millisecond:
 		return strconv.FormatInt(d.Milliseconds(), 10) + "ms"
 	default:

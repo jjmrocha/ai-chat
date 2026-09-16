@@ -7,14 +7,15 @@ import (
 )
 
 type mockedChatCore struct {
-	nameFunc          func() string
-	transcriptLenFunc func() int
-	sinceFunc         func(n int) []chat.Line
-	statusTextFunc    func() string
-	queuedFunc        func() bool
-	pendingFunc       func() string
-	submitFunc        func(text string)
-	cancellingFunc    func() bool
+	nameFunc           func() string
+	transcriptLenFunc  func() int
+	sinceFunc          func(n int) []chat.Line
+	statusTextFunc     func() string
+	queuedFunc         func() bool
+	pendingFunc        func() string
+	pendingCommandFunc func() string
+	submitFunc         func(text string)
+	cancellingFunc     func() bool
 
 	busy    atomic.Bool
 	cancels atomic.Int32
@@ -62,6 +63,13 @@ func (m *mockedChatCore) PendingTool() string {
 		return ""
 	}
 	return m.pendingFunc()
+}
+
+func (m *mockedChatCore) PendingCommand() string {
+	if m.pendingCommandFunc == nil {
+		return ""
+	}
+	return m.pendingCommandFunc()
 }
 
 func (m *mockedChatCore) Submit(text string) {

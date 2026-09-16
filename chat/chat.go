@@ -92,9 +92,10 @@ type Chat struct {
 	cancelTurn context.CancelCauseFunc
 	cancelling bool
 
-	pendingTool string
-	lastMeta    agent.Metadata
-	statusCache *StatusInfo
+	pendingTool    string
+	pendingCommand string
+	lastMeta       agent.Metadata
+	statusCache    *StatusInfo
 }
 
 // New creates a Chat named name that drives ag, applying opts in order.
@@ -201,6 +202,16 @@ func (c *Chat) PendingTool() string {
 	defer c.mu.Unlock()
 
 	return c.pendingTool
+}
+
+// PendingCommand returns the slash command in flight, as it was typed, or an
+// empty string when no command is running. A front-end can show it as progress
+// detail, to distinguish waiting on a command from waiting on the model.
+func (c *Chat) PendingCommand() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.pendingCommand
 }
 
 // Queued reports whether input submitted during a running turn is still
@@ -311,12 +322,26 @@ func (c *Chat) process(ctx context.Context, text string) {
 	for ok := true; ok; text, ok = c.dequeue() {
 		if strings.HasPrefix(text, "/") {
 			if cmd, args, ok := c.resolve(text); ok {
-				cmd.Run(c, args)
+				c.runCommand(cmd, text, args)
 			}
 			continue
 		}
 		c.turn(ctx, text)
 	}
+}
+
+func (c *Chat) runCommand(cmd command.Command, input, args string) {
+	c.setPendingCommand(input)
+	defer c.setPendingCommand("")
+
+	cmd.Run(c, args)
+}
+
+func (c *Chat) setPendingCommand(input string) {
+	c.mu.Lock()
+	c.pendingCommand = input
+	c.mu.Unlock()
+	c.notify()
 }
 
 func (c *Chat) turn(ctx context.Context, text string) {

@@ -112,6 +112,7 @@ type chatCore interface {
 	StatusText() string
 	Queued() bool
 	PendingTool() string
+	PendingCommand() string
 	Submit(text string)
 	Cancel()
 	Cancelling() bool
@@ -462,11 +463,14 @@ func (m model) thinkingLine() string {
 	if m.thinkingSince.IsZero() {
 		return ""
 	}
-	elapsed := time.Since(m.thinkingSince).Truncate(time.Second)
+	elapsed := chat.FormatDuration(time.Since(m.thinkingSince))
 
-	label := "Thinking for " + elapsed.String()
-	if pending := m.core.PendingTool(); pending != "" {
-		label = pending + " · " + elapsed.String()
+	label := "Thinking for " + elapsed
+	switch {
+	case m.core.PendingTool() != "":
+		label = m.core.PendingTool() + " · " + elapsed
+	case m.core.PendingCommand() != "":
+		label = "Waiting for " + m.core.PendingCommand() + " · " + elapsed
 	}
 	if m.core.Cancelling() {
 		label = "Cancelling…"

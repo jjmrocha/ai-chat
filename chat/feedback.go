@@ -102,7 +102,7 @@ func (c *Chat) closeToolCall(response string) {
 
 // ContextCompacted notes a successful context compaction in the transcript. It
 // implements agent.Feedback and is called by the agent.
-func (c *Chat) ContextCompacted() { c.append(command.Activity, "context compacted") }
+func (c *Chat) ContextCompacted() { c.append(command.Info, "Context compacted.") }
 
 // ContextCompactionFailed notes a failed context compaction in the transcript.
 // It implements agent.Feedback and is called by the agent.

@@ -140,8 +140,8 @@ func TestRenderBlockAppliesGlyphs(t *testing.T) {
 		},
 		{
 			name:     "activity without detail omits the detail glyph",
-			line:     chat.Line{Kind: command.Activity, Text: "context compacted"},
-			contains: []string{"● context compacted"},
+			line:     chat.Line{Kind: command.Activity, Text: "read(x)"},
+			contains: []string{"● read(x)"},
 			absent:   []string{"⎿"},
 		},
 		{
@@ -442,6 +442,39 @@ func TestThinkingLineShowsThePendingTool(t *testing.T) {
 	// then
 	assert.Contains(t, result, "read(a.go)")
 	assert.NotContains(t, result, "Thinking for")
+}
+
+func TestThinkingLineShowsTheRunningCommand(t *testing.T) {
+	// given
+	core := &mockedChatCore{pendingCommandFunc: func() string { return "/mcp on yfinance-mcp" }}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	next, _ := m.Update(refreshMsg{})
+
+	// when
+	result := next.(model).thinkingLine()
+
+	// then
+	assert.Contains(t, result, "Waiting for /mcp on yfinance-mcp")
+	assert.NotContains(t, result, "Thinking for")
+}
+
+func TestThinkingLineShowsThePendingToolOverTheRunningCommand(t *testing.T) {
+	// given
+	core := &mockedChatCore{
+		pendingFunc:        func() string { return "read(a.go)" },
+		pendingCommandFunc: func() string { return "/mcp on yfinance-mcp" },
+	}
+	m := sized(t, core, 80, 24)
+	core.busy.Store(true)
+	next, _ := m.Update(refreshMsg{})
+
+	// when
+	result := next.(model).thinkingLine()
+
+	// then
+	assert.Contains(t, result, "read(a.go)")
+	assert.NotContains(t, result, "Waiting for")
 }
 
 func TestInputHistoryRecall(t *testing.T) {

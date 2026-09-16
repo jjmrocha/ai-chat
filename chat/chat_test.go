@@ -202,6 +202,51 @@ func TestSlashCommandMarksChatBusy(t *testing.T) {
 	assert.False(t, c.Busy())
 }
 
+func TestPendingCommandNamesTheRunningCommand(t *testing.T) {
+	// given
+	release := make(chan struct{})
+	observed := make(chan bool, 1)
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithCommand(blockingCommand{
+		name:    "hold",
+		started: observed,
+		release: release,
+	}))
+
+	// when
+	c.Submit("/hold there")
+	<-observed
+
+	// then
+	assert.Equal(t, "/hold there", c.PendingCommand())
+	close(release)
+	waitIdle(t, c)
+	assert.Empty(t, c.PendingCommand())
+}
+
+func TestPendingCommandIsEmptyDuringATurn(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return &agent.Response{Content: "reply"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Submit("hello")
+	<-started
+
+	// then
+	assert.Empty(t, c.PendingCommand())
+	close(release)
+	waitIdle(t, c)
+}
+
 func TestQueuedInputIsReportedAndDrained(t *testing.T) {
 	// given
 	release := make(chan struct{})
