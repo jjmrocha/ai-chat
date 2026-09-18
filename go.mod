@@ -1,6 +1,6 @@
 module github.com/jjmrocha/ai-chat
 
-go 1.26.5
+go 1.27.1
 
 require (
 	charm.land/bubbles/v2 v2.2.1
@@ -9,6 +9,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/jjmrocha/ai-toolkit v0.2.7
+	github.com/jjmrocha/go-algo v0.1.2
 	github.com/stretchr/testify v1.12.1
 )
 
@@ -27,7 +28,6 @@ require (
 	github.com/dlclark/regexp2/v2 v2.8.0 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
-	github.com/jjmrocha/go-algo v0.1.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-runewidth v0.0.30 // indirect

@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/jjmrocha/go-algo/fn"
 )
 
 // Registry is the set of commands /help lists. chat.Chat implements it, so
@@ -38,24 +40,20 @@ func (c helpCmd) Run(ctx Context, _ string) {
 func helpText(cmds []Command) string {
 	type entry struct{ usage, desc string }
 
-	entries := make([]entry, 0, len(cmds))
-	for _, cmd := range cmds {
-		entries = append(entries, entry{usage: usageOf(cmd), desc: cmd.Help()})
-	}
+	entries := fn.Map(cmds, func(cmd Command) entry {
+		return entry{usage: usageOf(cmd), desc: cmd.Help()}
+	})
 	slices.SortFunc(entries, func(a, b entry) int { return strings.Compare(a.usage, b.usage) })
 
-	width := 0
-	for _, e := range entries {
-		width = max(width, utf8.RuneCountInString(e.usage))
-	}
+	width := fn.Fold(entries, 0, func(w int, e entry) int {
+		return max(w, utf8.RuneCountInString(e.usage))
+	})
 
-	lines := make([]string, 0, len(entries)+1)
-	lines = append(lines, "Commands:")
-	for _, e := range entries {
+	lines := fn.Map(entries, func(e entry) string {
 		pad := strings.Repeat(" ", width-utf8.RuneCountInString(e.usage))
-		lines = append(lines, "  "+e.usage+pad+" "+e.desc)
-	}
-	return strings.Join(lines, "\n")
+		return "  " + e.usage + pad + " " + e.desc
+	})
+	return strings.Join(append([]string{"Commands:"}, lines...), "\n")
 }
 
 func usageOf(cmd Command) string {

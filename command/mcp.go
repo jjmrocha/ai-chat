@@ -3,6 +3,9 @@ package command
 import (
 	"context"
 	"strings"
+
+	"github.com/jjmrocha/ai-toolkit/mcp"
+	"github.com/jjmrocha/go-algo/fn"
 )
 
 type mcpCmd struct{ mgr MCPController }
@@ -33,15 +36,13 @@ func (c mcpCmd) Run(ctx Context, args string) {
 
 	switch action {
 	case "":
-		statuses := c.mgr.Status()
-		items := make([]string, 0, len(statuses))
-		for _, s := range statuses {
+		items := fn.Map(c.mgr.Status(), func(s mcp.Status) string {
 			state := "off"
 			if s.Active {
 				state = "on"
 			}
-			items = append(items, s.Name+": "+state)
-		}
+			return s.Name + ": " + state
+		})
 		printList(ctx, "MCP servers", "No MCP servers registered.", items)
 
 	case "on", "off":

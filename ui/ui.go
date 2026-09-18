@@ -39,6 +39,7 @@ import (
 
 	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/command"
+	"github.com/jjmrocha/go-algo/fn"
 )
 
 const (
@@ -407,12 +408,9 @@ func chunkBlock(block string, limit int) []string {
 }
 
 func (m model) pending() []string {
-	lines := m.core.Since(m.printed)
-	blocks := make([]string, 0, len(lines))
-	for _, ln := range lines {
-		blocks = append(blocks, "\n"+m.renderBlock(ln))
-	}
-	return blocks
+	return fn.Map(m.core.Since(m.printed), func(ln chat.Line) string {
+		return "\n" + m.renderBlock(ln)
+	})
 }
 
 func (m model) renderBlock(ln chat.Line) string {

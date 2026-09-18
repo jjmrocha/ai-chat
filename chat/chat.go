@@ -16,7 +16,6 @@ package chat
 import (
 	"context"
 	"errors"
-	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -24,6 +23,8 @@ import (
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
+	"github.com/jjmrocha/go-algo/queue"
+	"github.com/jjmrocha/go-algo/treemap"
 )
 
 // Line is one entry in the transcript: the text to show and the [command.Kind]
@@ -80,7 +81,7 @@ type Chat struct {
 	agent   agentBackend
 	baseCtx context.Context
 
-	commands     map[string]command.Command
+	commands     *treemap.Map[string, command.Command]
 	telemetryFmt TelemetryFormatter
 	statusFmt    StatusFormatter
 
@@ -88,7 +89,7 @@ type Chat struct {
 	transcript []Line
 	observer   Observer
 	busy       bool
-	queue      []string
+	queue      *queue.Queue[string]
 	cancelTurn context.CancelCauseFunc
 	cancelling bool
 
@@ -118,7 +119,8 @@ func newChat(name string, opts ...Option) *Chat {
 	c := &Chat{
 		name:         name,
 		baseCtx:      context.Background(),
-		commands:     map[string]command.Command{},
+		commands:     treemap.New[string, command.Command](strings.Compare),
+		queue:        queue.New[string](),
 		telemetryFmt: defaultTelemetryFormatter,
 		statusFmt:    defaultStatusFormatter,
 	}
@@ -136,7 +138,7 @@ func newChat(name string, opts ...Option) *Chat {
 func (c *Chat) SetContext(ctx context.Context) { c.baseCtx = ctx }
 
 func (c *Chat) register(cmd command.Command) {
-	c.commands[cmd.Name()] = cmd
+	c.commands.Put(cmd.Name(), cmd)
 }
 
 // Name returns the name given to [New], for a front-end to display.
@@ -145,11 +147,7 @@ func (c *Chat) Name() string { return c.name }
 // Commands returns every registered command, sorted by name. It implements
 // [command.Registry] so /help can list them.
 func (c *Chat) Commands() []command.Command {
-	cmds := slices.Collect(maps.Values(c.commands))
-	slices.SortFunc(cmds, func(a, b command.Command) int {
-		return strings.Compare(a.Name(), b.Name())
-	})
-	return cmds
+	return c.commands.ToList()
 }
 
 // SetObserver installs the observer notified on transcript changes and on
@@ -219,7 +217,7 @@ func (c *Chat) PendingCommand() string {
 func (c *Chat) Queued() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.queue) > 0
+	return !c.queue.Empty()
 }
 
 // Cancel stops the running agent turn and discards all queued input. The turn
@@ -227,7 +225,7 @@ func (c *Chat) Queued() bool {
 // slash command is not interrupted, and Cancel does nothing when idle.
 func (c *Chat) Cancel() {
 	c.mu.Lock()
-	c.queue = nil
+	c.queue = queue.New[string]()
 	if c.cancelTurn != nil && !c.cancelling {
 		c.cancelling = true
 		c.cancelTurn(errCancelled)
@@ -276,7 +274,7 @@ func (c *Chat) enqueue(text string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.busy {
-		c.queue = append(c.queue, text)
+		c.queue.Enqueue(text)
 		return true
 	}
 	c.busy = true
@@ -286,20 +284,18 @@ func (c *Chat) enqueue(text string) bool {
 func (c *Chat) dequeue() (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.queue) == 0 {
+	next, ok := c.queue.Dequeue()
+	if !ok {
 		c.busy = false
-		return "", false
 	}
-	next := c.queue[0]
-	c.queue = c.queue[1:]
-	return next, true
+	return next, ok
 }
 
 func (c *Chat) resolve(input string) (command.Command, string, bool) {
 	name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
 	args = strings.TrimSpace(args)
 
-	cmd, ok := c.commands[name]
+	cmd, ok := c.commands.Get(name)
 	if !ok {
 		c.append(command.Error, "Error: unknown command /"+name)
 		return nil, "", false

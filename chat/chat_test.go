@@ -276,6 +276,36 @@ func TestQueuedInputIsReportedAndDrained(t *testing.T) {
 	assert.Equal(t, []string{"first", "second"}, backend.inputs())
 }
 
+func TestQueuedInputDrainsInSubmissionOrder(t *testing.T) {
+	// given
+	release := make(chan struct{})
+	started := make(chan bool, 1)
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			select {
+			case started <- true:
+			default:
+			}
+			<-release
+			return &agent.Response{Content: "ok"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.Submit("first")
+	<-started
+	c.Submit("second")
+	c.Submit("third")
+	c.Submit("fourth")
+	close(release)
+	waitIdle(t, c)
+
+	// then
+	expected := []string{"first", "second", "third", "fourth"}
+	assert.Equal(t, expected, backend.inputs())
+}
+
 func TestExitCommandNotifiesObserver(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}

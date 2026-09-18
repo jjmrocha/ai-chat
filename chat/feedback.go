@@ -11,6 +11,7 @@ import (
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
+	"github.com/jjmrocha/go-algo/fn"
 )
 
 var _ agent.Feedback = (*Chat)(nil)
@@ -30,10 +31,9 @@ func (c *Chat) ToolCalled(name string, args map[string]any) {
 func formatToolCall(name string, args map[string]any) string {
 	argNames := slices.Sorted(maps.Keys(args))
 
-	parts := make([]string, 0, len(argNames))
-	for _, argName := range argNames {
-		parts = append(parts, formatToolArg(argName, args[argName]))
-	}
+	parts := fn.Map(argNames, func(argName string) string {
+		return formatToolArg(argName, args[argName])
+	})
 
 	return name + "(" + strings.Join(parts, ", ") + ")"
 }

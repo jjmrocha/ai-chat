@@ -81,6 +81,18 @@ func TestWithCommandOverridesADefault(t *testing.T) {
 	t.Fatal("help command not registered")
 }
 
+func TestWithCommandReplacesRatherThanDuplicates(t *testing.T) {
+	// given
+	replacement := stubNamedCommand{name: "help"}
+
+	// when
+	result := commandNames(newChat("test", WithCommand(replacement)))
+
+	// then
+	expected := []string{"exit", "help"}
+	assert.Equal(t, expected, result)
+}
+
 type stubNamedCommand struct{ name string }
 
 func (s stubNamedCommand) Name() string                { return s.name }
