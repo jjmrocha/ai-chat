@@ -47,7 +47,11 @@ func run() error {
 
 	toolBox := tools.NewToolBox()
 
-	shellPack := packs.ShellTools(toolBox)
+	shellPack, err := packs.ShellTools(toolBox)
+	if err != nil {
+		return err
+	}
+
 	defer func() { _ = shellPack.Close() }()
 
 	filePack, err := packs.FileTools(toolBox, ".")
