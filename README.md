@@ -3,7 +3,7 @@
 Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmrocha/ai-toolkit) agent; get a headless chat core, a Bubble Tea TUI, a pluggable slash-command framework, and MCP server management.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jjmrocha/ai-chat.svg)](https://pkg.go.dev/github.com/jjmrocha/ai-chat)
-[![Go 1.26+](https://img.shields.io/badge/go-1.26+-00ADD8)](https://go.dev/dl/)
+[![Go 1.27+](https://img.shields.io/badge/go-1.27+-00ADD8)](https://go.dev/dl/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 - **Headless core.** `chat.Chat` runs the transcript and drives the agent with no terminal attached — drive it from a test, a script, or your own UI.
@@ -17,7 +17,7 @@ Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmro
 go get github.com/jjmrocha/ai-chat
 ```
 
-Requires Go 1.26+.
+Requires Go 1.27+.
 
 ## Quickstart
 
@@ -68,7 +68,10 @@ func main() {
 }
 ```
 
-Fuller examples live in [`cmd/`](cmd): [`ai-chat`](cmd/ai-chat/main.go) wires a local Ollama model with in-process shell and file packs plus an MCP server, and [`warren`](cmd/warren/main.go) builds a financial analyst on OpenRouter.
+Real consumers of this library: [joe](https://github.com/jjmrocha/joe), a terminal coding
+agent, and [warren](https://github.com/jjmrocha/warren), a financial analyst. Both wire a
+model, a toolbox and a skill collection into `chat.New` and hand the result to `ui.Run`,
+the way the snippet above does.
 
 ## Built-in commands
 
@@ -315,7 +318,6 @@ and reset your counter.
 | `chat` | Headless core: transcript, command dispatch, agent feedback, status. |
 | `command` | Slash-command framework and the built-in commands. |
 | `ui` | Bubble Tea TUI renderer (`ui.Run`). |
-| `cmd` | Two reference entry points: `ai-chat` (generic) and `warren` (financial analyst). |
 
 Full type and method reference: **[pkg.go.dev/github.com/jjmrocha/ai-chat](https://pkg.go.dev/github.com/jjmrocha/ai-chat)**.
 
