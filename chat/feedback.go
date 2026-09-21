@@ -87,6 +87,17 @@ func (c *Chat) ToolReturned(_ string, result string, err error, elapsed time.Dur
 	c.closeToolCall(formatToolResult(result, err, elapsed))
 }
 
+// TokensUsed updates the token count shown in the status bar after each
+// intermediate model response. It implements agent.Feedback and is called by
+// the agent.
+func (c *Chat) TokensUsed(totalTokens int) {
+	c.mu.Lock()
+	c.lastMeta.TotalTokens = totalTokens
+	c.statusCache = nil
+	c.mu.Unlock()
+	c.notify()
+}
+
 func (c *Chat) closeToolCall(response string) {
 	c.mu.Lock()
 	request := c.pendingTool

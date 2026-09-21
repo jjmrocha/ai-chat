@@ -149,6 +149,27 @@ func TestToolReturnedWithoutPendingCallIsDropped(t *testing.T) {
 	assert.Zero(t, c.TranscriptLen())
 }
 
+func TestTokensUsedUpdatesStatus(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, obs := newTestChat(t, backend)
+
+	// when
+	c.TokensUsed(120)
+
+	// then
+	c.mu.Lock()
+	meta := c.lastMeta
+	cached := c.statusCache
+	c.mu.Unlock()
+	assert.Equal(t, 120, meta.TotalTokens)
+	assert.Nil(t, cached)
+	obs.mu.Lock()
+	changes := obs.changes
+	obs.mu.Unlock()
+	assert.Equal(t, 1, changes)
+}
+
 func TestToolErrorIsReportedInDetail(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
