@@ -8,7 +8,7 @@ require (
 	charm.land/glamour/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/alecthomas/chroma/v2 v2.27.0
-	github.com/jjmrocha/ai-toolkit v0.3.0
+	github.com/jjmrocha/ai-toolkit v0.3.1
 	github.com/jjmrocha/go-algo v0.1.2
 	github.com/stretchr/testify v1.12.1
 )
