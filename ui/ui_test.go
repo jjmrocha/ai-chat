@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -682,4 +683,124 @@ func TestThinkingLineShowsCancellingOverThePendingTool(t *testing.T) {
 	assert.Contains(t, result, "Cancelling…")
 	assert.NotContains(t, result, "read(a.go)")
 	assert.NotContains(t, result, "Thinking for")
+}
+
+func everyKind() []chat.Line {
+	return []chat.Line{
+		{Kind: command.User, Text: strings.Repeat("typed ", 40)},
+		{Kind: command.Info, Text: strings.Repeat("noted ", 40)},
+		{Kind: command.Error, Text: "Error: " + strings.Repeat("why ", 40)},
+		{
+			Kind:   command.Activity,
+			Text:   `decision_yes_no(question="` + strings.Repeat("q", 180) + `")`,
+			Detail: strings.Repeat("d", 150),
+		},
+		{Kind: command.Reply, Text: strings.Repeat("word ", 200)},
+		{Kind: command.Telemetry, Text: "7 tool calls · 12.3s"},
+	}
+}
+
+func widestLine(t *testing.T, block string) int {
+	t.Helper()
+	widest := 0
+	for _, line := range strings.Split(block, "\n") {
+		widest = max(widest, lipgloss.Width(line))
+	}
+	return widest
+}
+
+func TestPendingKeepsEveryBlockWithinThePrintedWidth(t *testing.T) {
+	for _, width := range []int{20, 40, 80, 120} {
+		// given
+		all := everyKind()
+		core := &mockedChatCore{
+			transcriptLenFunc: func() int { return len(all) },
+			sinceFunc:         linesFrom(all),
+		}
+		m := sized(t, core, width, 24)
+		m.printed = 0
+
+		// when
+		blocks := m.pending()
+
+		// then
+		require.Len(t, blocks, len(all))
+		for i, block := range blocks {
+			assert.LessOrEqual(t, widestLine(t, block), m.printWidth(),
+				"width %d, block %d (%v) exceeds the printed width", width, i, all[i].Kind)
+		}
+	}
+}
+
+func TestPendingNeverEmitsALineThatFillsTheTerminalWidth(t *testing.T) {
+	// given
+	all := everyKind()
+	core := &mockedChatCore{
+		transcriptLenFunc: func() int { return len(all) },
+		sinceFunc:         linesFrom(all),
+	}
+	m := sized(t, core, 80, 24)
+	m.printed = 0
+
+	// when
+	blocks := m.pending()
+
+	// then
+	for i, block := range blocks {
+		for _, line := range strings.Split(block, "\n") {
+			w := lipgloss.Width(line)
+			assert.False(t, w > 0 && w%m.width == 0,
+				"block %d (%v) has a line of exactly %d columns, which miscounts on insertAbove", i, all[i].Kind, w)
+		}
+	}
+}
+
+func TestPendingKeepsTheTurnSeparatorOnTheTelemetryBlock(t *testing.T) {
+	// given
+	all := []chat.Line{{Kind: command.Telemetry, Text: "7 tool calls · 12.3s"}}
+	core := &mockedChatCore{
+		transcriptLenFunc: func() int { return len(all) },
+		sinceFunc:         linesFrom(all),
+	}
+	m := sized(t, core, 80, 24)
+	m.printed = 0
+
+	// when
+	blocks := m.pending()
+
+	// then
+	require.Len(t, blocks, 1)
+	lines := strings.Split(blocks[0], "\n")
+	require.Len(t, lines, 3, "the rule must fit one line, with no orphan wrapped onto the next")
+	assert.Equal(t, m.printWidth(), lipgloss.Width(lines[1]))
+	assert.Contains(t, lines[1], "─")
+	assert.Contains(t, lines[2], "7 tool calls · 12.3s")
+}
+
+func TestLiveRegionKeepsTheFullWidthRule(t *testing.T) {
+	// given
+	core := &mockedChatCore{}
+
+	// when
+	m := sized(t, core, 80, 24)
+
+	// then
+	assert.Equal(t, strings.Repeat("─", 80), m.hrule)
+}
+
+func TestPendingIsUnwrappedBeforeTheFirstResize(t *testing.T) {
+	// given
+	all := []chat.Line{{Kind: command.Info, Text: strings.Repeat("noted ", 40)}}
+	core := &mockedChatCore{
+		transcriptLenFunc: func() int { return len(all) },
+		sinceFunc:         linesFrom(all),
+	}
+	m := newModel(core)
+
+	// when
+	blocks := m.pending()
+
+	// then
+	require.Len(t, blocks, 1)
+	assert.Contains(t, blocks[0], strings.Repeat("noted ", 40))
 }

@@ -36,6 +36,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/command"
@@ -135,8 +136,9 @@ type model struct {
 	quitting      bool
 	spinning      bool
 
-	hrule    string
-	titleBar string
+	hrule     string
+	printRule string
+	titleBar  string
 
 	history []string
 	histIdx int
@@ -209,11 +211,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		if msg.Width != m.width {
-			m.renderer = newRenderer(msg.Width)
-		}
+		resized := msg.Width != m.width
 		m.width = msg.Width
 		m.height = msg.Height
+		if resized {
+			m.renderer = newRenderer(m.printWidth())
+		}
 		m.input.SetWidth(max(msg.Width-2, 0))
 		m.resize()
 		m.ready = true
@@ -341,6 +344,7 @@ func (m model) liveRegion() string {
 
 func (m *model) resize() {
 	m.hrule = strings.Repeat("─", m.width)
+	m.printRule = strings.Repeat("─", m.printWidth())
 	m.titleBar = m.renderTitleBar()
 }
 
@@ -384,6 +388,11 @@ func (m model) emit() (tea.Model, tea.Cmd) {
 	return m, tea.Sequence(cmds...)
 }
 
+// printWidth is one column short of the terminal so that no printed line ever
+// fills it exactly: bubbletea's insertAbove counts a full-width line as two
+// rows, scrolls one line too far and then paints over live content.
+func (m model) printWidth() int { return max(m.width-1, 0) }
+
 func (m model) printLimit() int {
 	if m.height == 0 {
 		return 0
@@ -409,7 +418,7 @@ func chunkBlock(block string, limit int) []string {
 
 func (m model) pending() []string {
 	return fn.Map(m.core.Since(m.printed), func(ln chat.Line) string {
-		return "\n" + m.renderBlock(ln)
+		return "\n" + ansi.Wrap(m.renderBlock(ln), m.printWidth(), "")
 	})
 }
 
@@ -425,7 +434,7 @@ func (m model) renderBlock(ln chat.Line) string {
 	case command.Activity:
 		return m.renderActivity(ln)
 	case command.Telemetry:
-		return s.turnSep.Render(m.hrule) + "\n" + s.telemetry.Render(ln.Text)
+		return s.turnSep.Render(m.printRule) + "\n" + s.telemetry.Render(ln.Text)
 	case command.Reply:
 		return m.renderMarkdown(ln.Text)
 	default:
