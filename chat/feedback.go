@@ -1,83 +1,27 @@
 package chat
 
 import (
-	"encoding/json"
-	"fmt"
-	"maps"
-	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
-	"github.com/jjmrocha/go-algo/fn"
 )
 
 var _ agent.Feedback = (*Chat)(nil)
 
-const maxToolArgLen = 200
+// PendingTool returns a description of the tool call in flight, or an empty
+// string when none is running. A front-end can show it as progress detail.
+func (c *Chat) PendingTool() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pendingTool
+}
 
 // ToolCalled records that the agent started a tool call, making it visible
 // through [Chat.PendingTool]. It implements agent.Feedback and is called by the
 // agent, not by your code.
 func (c *Chat) ToolCalled(name string, args map[string]any) {
-	c.mu.Lock()
-	c.pendingTool = formatToolCall(name, args)
-	c.mu.Unlock()
-	c.notify()
-}
-
-func formatToolCall(name string, args map[string]any) string {
-	argNames := slices.Sorted(maps.Keys(args))
-
-	parts := fn.Map(argNames, func(argName string) string {
-		return formatToolArg(argName, args[argName])
-	})
-
-	return name + "(" + strings.Join(parts, ", ") + ")"
-}
-
-func formatToolArg(name string, value any) string {
-	return name + "=" + formatValue(value, maxToolArgLen)
-}
-
-func formatValue(value any, budget int) string {
-	switch v := value.(type) {
-	case nil:
-		return "null"
-	case string:
-		if len(v) > budget {
-			return formatBytes(len(v))
-		}
-
-		return strconv.Quote(v)
-	case bool, float64, int:
-		return fmt.Sprint(v)
-	case map[string]any:
-		return encodeOrShape(v, budget, "{"+plural(len(v), "key")+"}")
-	case []any:
-		return encodeOrShape(v, budget, "["+strconv.Itoa(len(v))+"]")
-	default:
-		return encodeOrShape(v, budget, "<?>")
-	}
-}
-
-func encodeOrShape(value any, budget int, shape string) string {
-	encoded, err := json.Marshal(value)
-	if err != nil || len(encoded) > budget {
-		return shape
-	}
-
-	return string(encoded)
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-
-	return strconv.Itoa(n) + " " + noun + "s"
+	c.mutate(func() { c.pendingTool = sanitize(formatToolCall(name, args)) })
 }
 
 // ToolReturned records the outcome of the tool call in flight, appending it as
@@ -85,17 +29,6 @@ func plural(n int, noun string) string {
 // result. It implements agent.Feedback and is called by the agent.
 func (c *Chat) ToolReturned(_ string, result string, err error, elapsed time.Duration) {
 	c.closeToolCall(formatToolResult(result, err, elapsed))
-}
-
-// TokensUsed updates the token count shown in the status bar after each
-// intermediate model response. It implements agent.Feedback and is called by
-// the agent.
-func (c *Chat) TokensUsed(totalTokens int) {
-	c.mu.Lock()
-	c.lastMeta.TotalTokens = totalTokens
-	c.statusCache = nil
-	c.mu.Unlock()
-	c.notify()
 }
 
 func (c *Chat) closeToolCall(response string) {
@@ -111,6 +44,13 @@ func (c *Chat) closeToolCall(response string) {
 	c.appendLine(Line{Kind: command.Activity, Text: request, Detail: response})
 }
 
+// TokensUsed updates the token count shown in the status bar after each
+// intermediate model response. It implements agent.Feedback and is called by
+// the agent.
+func (c *Chat) TokensUsed(totalTokens int) {
+	c.mutate(func() { c.lastMeta.TotalTokens = totalTokens })
+}
+
 // ContextCompacted notes a successful context compaction in the transcript. It
 // implements agent.Feedback and is called by the agent.
 func (c *Chat) ContextCompacted() { c.append(command.Info, "Context compacted.") }
@@ -122,10 +62,18 @@ func (c *Chat) ContextCompactionFailed() {
 }
 
 // ModelInfoUnavailable notes that the model's limits could not be read, which
-// disables automatic compaction. It implements agent.Feedback and is called by
-// the agent.
+// disables automatic compaction. The note is written once per model, however
+// often the agent reports it. It implements agent.Feedback and is called by the
+// agent.
 func (c *Chat) ModelInfoUnavailable() {
-	c.append(command.Error, "Model info unavailable; automatic context compaction is disabled.")
+	c.mu.Lock()
+	reported := c.model.reported
+	c.model.reported = true
+	c.mu.Unlock()
+
+	if !reported {
+		c.append(command.Error, "Model info unavailable; automatic context compaction is disabled.")
+	}
 }
 
 // SessionReset implements agent.Feedback. The core needs no action here.

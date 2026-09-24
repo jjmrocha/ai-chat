@@ -1,49 +1,9 @@
-// Package command is the slash-command framework for a terminal chat agent,
-// together with the built-in commands.
-//
-// A command is any value implementing [Command]; register one with
-// chat.WithCommand and it is dispatched like a built-in, with no forking. A
-// command that takes arguments also implements [Argumented] so /help can show
-// its usage.
-//
-// Commands never touch the chat core directly. They receive a [Context], which
-// exposes the transcript, session reset and the agent; anything narrower — MCP
-// servers, the skill catalog, the registry, the quit signal — is injected into
-// the individual command at construction, so no command can reach a capability
-// it was not given.
 package command
 
 import (
 	"context"
 
 	"github.com/jjmrocha/ai-toolkit/llm"
-	"github.com/jjmrocha/ai-toolkit/mcp"
-)
-
-// Kind classifies a transcript line so a front-end can style it. The core
-// stores plain text and never decorates it; choosing a color, glyph or layout
-// per Kind is the renderer's job.
-type Kind int
-
-// The kinds of transcript line a front-end may be asked to render.
-const (
-	// User is input the person typed.
-	User Kind = iota
-
-	// Reply is the agent's answer, conventionally rendered as markdown.
-	Reply
-
-	// Info is command output, such as a list of models.
-	Info
-
-	// Error is a failed turn or command.
-	Error
-
-	// Activity is a tool call. Its Detail holds the result.
-	Activity
-
-	// Telemetry is the per-turn timing and token summary.
-	Telemetry
 )
 
 // AgentController is the slice of the agent that commands may drive: switching
@@ -67,26 +27,6 @@ type AgentController interface {
 	Compact()
 }
 
-// MCPController is the MCP server manager /mcp drives. Pass one to [MCP], or
-// to chat.WithMCP, which wires it for you.
-type MCPController interface {
-	// Status lists every registered server and whether it is running.
-	Status() []mcp.Status
-
-	// Start launches the named server.
-	Start(ctx context.Context, name string) error
-
-	// Stop shuts the named server down.
-	Stop(name string) error
-}
-
-// SkillsController is the skill catalog /skills reads. Pass one to [Skills], or
-// to chat.WithSkills, which wires it for you.
-type SkillsController interface {
-	// Skills lists the names of the registered skills.
-	Skills() []string
-}
-
 // Context is what a running command may do to the session. It is deliberately
 // narrow: a command that needs more than this is given its own collaborator at
 // construction instead.
@@ -101,6 +41,11 @@ type Context interface {
 	// Clear resets the conversation, returning the agent's error if the
 	// session could not be reset.
 	Clear() error
+
+	// Context is cancelled when the user cancels the running command or the
+	// session closes. Pass it to anything the command waits on, so a slow
+	// command can be interrupted.
+	Context() context.Context
 }
 
 // Command is a slash command. Register an implementation with

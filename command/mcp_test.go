@@ -7,6 +7,7 @@ import (
 
 	"github.com/jjmrocha/ai-toolkit/mcp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMCPCommand(t *testing.T) {
@@ -167,4 +168,27 @@ func TestMCPCommand(t *testing.T) {
 			assert.Equal(t, "Usage: /mcp [on|off] [name]", ctx.printed[0].text)
 		}
 	})
+}
+
+type ctxKey struct{}
+
+func TestMCPStartRunsUnderTheCommandContextWithADeadline(t *testing.T) {
+	// given
+	var got context.Context
+	mgr := &mockedMCPController{
+		startFunc: func(ctx context.Context, _ string) error {
+			got = ctx
+			return nil
+		},
+	}
+	ctx := &mockedContext{ctx: context.WithValue(context.Background(), ctxKey{}, "cmd")}
+
+	// when
+	MCP(mgr).Run(ctx, "on srv")
+
+	// then
+	require.NotNil(t, got)
+	assert.Equal(t, "cmd", got.Value(ctxKey{}))
+	_, hasDeadline := got.Deadline()
+	assert.True(t, hasDeadline)
 }

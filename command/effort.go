@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/jjmrocha/ai-toolkit/llm"
+	"github.com/jjmrocha/go-algo/fn"
 )
 
 type effortCmd struct{}
@@ -26,7 +27,10 @@ func (effortCmd) Args() string {
 	return "[level]"
 }
 
-var effortLevels = []string{"off", "low", "medium", "max"}
+var effortLevels = fn.Map(
+	[]llm.Effort{llm.EffortOff, llm.EffortLow, llm.EffortMedium, llm.EffortMax},
+	func(e llm.Effort) string { return string(e) },
+)
 
 func (effortCmd) Run(ctx Context, args string) {
 	if args == "" {

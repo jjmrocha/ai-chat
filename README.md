@@ -114,11 +114,16 @@ everything the UI needs it reads back through `chat.Chat`'s methods.
 **The core renders nothing.** A `chat.Line` holds a `Kind` and plain text — no prompt
 glyph, no bullet, no indent, no color. Deciding that a user line starts with `❯` is the
 renderer's job, which is what makes swapping `ui` for your own front-end worth doing.
+The core does strip terminal escape sequences and control characters (all but newline
+and tab) from every line, so model or tool output can never write to the user's
+clipboard, retitle the window or disguise a link, whichever front-end prints it.
 
 **Input is queued, never dropped.** `Submit` returns immediately and the work runs on the
 core's own goroutine. Anything sent while a turn is running is queued — the placeholder
 reads `(queued)` — and commands and turns share that one queue, so they run strictly in
-submission order and never overlap. `Ctrl+C` is the way out mid-turn.
+submission order and never overlap. `Esc` (`Cancel`) stops the running turn or command
+and drops the queue; `Ctrl+C` quits, and `ui.Run` closes the core on the way out, so no
+turn is left running against the agent.
 
 ### How the TUI behaves
 
@@ -131,7 +136,8 @@ the window leaves earlier markdown wrapped at the old width. `/clear` resets the
 but leaves the conversation in the scrollback, still readable.
 
 Keys: `Enter` sends, `Shift+Enter` (or `Alt+Enter` / `Ctrl+J`) adds a line, `↑` / `↓` walk
-prompt history, `Esc` cancels the running turn and drops queued prompts, `Ctrl+C` quits.
+prompt history, `Esc` cancels the running turn or command and drops queued prompts,
+`Ctrl+C` quits.
 
 ### Colors
 
@@ -180,13 +186,15 @@ func (pingCmd) Args() string { return "[message]" }   // renders as: /ping [mess
 have to match exactly — a `pingCmd` registered by value whose `Args()` is declared on
 `*pingCmd` compiles fine and silently renders as a bare `/ping`.
 
-`command.Context` gives a command the agent (`Agent()`), the transcript (`Print`) and
-session reset (`Clear`) — and nothing else. A command needing more than that is handed its
+`command.Context` gives a command the agent (`Agent()`), the transcript (`Print`),
+session reset (`Clear`) and a cancellation context (`Context()`) — and nothing else. A command needing more than that is handed its
 own collaborator at construction, the way `/mcp` and `/skills` are, so no command can
 reach a capability it was not given.
 
 `Run` is called on the core's worker goroutine, one command at a time, so it needs no
-locking of its own — but a slow `Run` blocks every queued input behind it.
+locking of its own — but a slow `Run` blocks every queued input behind it. Pass
+`ctx.Context()` to anything it waits on: `Esc` cancels that context, and a command that
+ignores it cannot be interrupted.
 
 ### Register an MCP server
 
@@ -266,25 +274,30 @@ for _, line := range core.Transcript() {
 
 `Busy()` covers the queue as well as the running turn, so the loop also drains anything
 submitted behind it. For anything longer-lived than a script, install an `Observer`
-instead of polling.
+instead of polling, and call `core.Close()` when you are done: it cancels whatever is
+still running and waits for it, so the agent is idle before you close it.
 
 ### Write your own front-end
 
 Implement `chat.Observer`, hand it to the core, and read the transcript back on each
-notification. `TranscriptLen()` with `Since(n)` copies only the lines you have not shown
-yet, which is what you want when the transcript grows all session.
+notification. `Next(cursor)` copies only the lines you have not shown yet and returns the
+cursor to pass next time, which is what you want when the transcript grows all session.
 
 ```go
 type printer struct {
-	core    *chat.Chat
-	printed int
+	core   *chat.Chat
+	mu     sync.Mutex
+	cursor chat.Cursor
 }
 
 func (p *printer) TranscriptChanged() {
-	for _, line := range p.core.Since(p.printed) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	lines, next := p.core.Next(p.cursor)
+	for _, line := range lines {
 		fmt.Println(render(line))
-		p.printed++
 	}
+	p.cursor = next
 }
 
 func (p *printer) Quit() { os.Exit(0) }
@@ -302,14 +315,14 @@ func render(line chat.Line) string {
 }
 
 core := chat.New("CHAT", ag)
+defer core.Close()
 core.SetContext(context.Background())
 core.SetObserver(&printer{core: core})
 ```
 
 Both `Observer` methods may be called from any goroutine, and from inside a `Chat` method,
-so neither should block. `Since` returns nil when `n` is past the end, which is what you
-see after `/clear` resets the transcript beneath you — compare against `TranscriptLen()`
-and reset your counter.
+so neither should block. The cursor survives `/clear`: after a reset `Next` starts again
+from the new transcript's first line, so nothing is skipped or printed twice.
 
 ## Packages
 

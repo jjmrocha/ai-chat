@@ -141,3 +141,23 @@ func waitIdle(t *testing.T, c *Chat) {
 	}
 	t.Fatal("chat never went idle")
 }
+
+type renderingObserver struct{ core *Chat }
+
+func (r *renderingObserver) TranscriptChanged() { r.core.Status() }
+
+func (r *renderingObserver) Quit() {}
+
+func waitStatus(t *testing.T, c *Chat, done func(StatusInfo) bool) StatusInfo {
+	t.Helper()
+	var last StatusInfo
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if last = c.Status(); done(last) {
+			return last
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("status never settled, last: %+v", last)
+	return last
+}

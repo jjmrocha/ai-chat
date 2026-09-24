@@ -2,14 +2,23 @@ package ui
 
 import (
 	"sync/atomic"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/jjmrocha/ai-chat/chat"
 )
 
+func sized(t *testing.T, core chatCore, w, h int) model {
+	t.Helper()
+	m := newModel(core)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	return next.(model)
+}
+
 type mockedChatCore struct {
 	nameFunc           func() string
-	transcriptLenFunc  func() int
-	sinceFunc          func(n int) []chat.Line
+	nextFunc           func(cur chat.Cursor) ([]chat.Line, chat.Cursor)
 	statusTextFunc     func() string
 	queuedFunc         func() bool
 	pendingFunc        func() string
@@ -17,8 +26,9 @@ type mockedChatCore struct {
 	submitFunc         func(text string)
 	cancellingFunc     func() bool
 
-	busy    atomic.Bool
-	cancels atomic.Int32
+	busy      atomic.Bool
+	cancels   atomic.Int32
+	nextCalls atomic.Int32
 }
 
 func (m *mockedChatCore) Name() string {
@@ -28,18 +38,12 @@ func (m *mockedChatCore) Name() string {
 	return m.nameFunc()
 }
 
-func (m *mockedChatCore) TranscriptLen() int {
-	if m.transcriptLenFunc == nil {
-		return 0
+func (m *mockedChatCore) Next(cur chat.Cursor) ([]chat.Line, chat.Cursor) {
+	m.nextCalls.Add(1)
+	if m.nextFunc == nil {
+		return nil, cur
 	}
-	return m.transcriptLenFunc()
-}
-
-func (m *mockedChatCore) Since(n int) []chat.Line {
-	if m.sinceFunc == nil {
-		return nil
-	}
-	return m.sinceFunc(n)
+	return m.nextFunc(cur)
 }
 
 func (m *mockedChatCore) Busy() bool { return m.busy.Load() }
@@ -87,11 +91,6 @@ func (m *mockedChatCore) Cancelling() bool {
 	return m.cancellingFunc()
 }
 
-func linesFrom(all []chat.Line) func(int) []chat.Line {
-	return func(n int) []chat.Line {
-		if n >= len(all) {
-			return nil
-		}
-		return all[n:]
-	}
+func linesFrom(all []chat.Line) func(chat.Cursor) ([]chat.Line, chat.Cursor) {
+	return func(cur chat.Cursor) ([]chat.Line, chat.Cursor) { return all, cur }
 }

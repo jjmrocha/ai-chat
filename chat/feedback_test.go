@@ -2,7 +2,6 @@ package chat
 
 import (
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -10,99 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestFormatToolCall(t *testing.T) {
-	tests := []struct {
-		name     string
-		tool     string
-		args     map[string]any
-		expected string
-	}{
-		{
-			name:     "no arguments",
-			tool:     "list",
-			args:     nil,
-			expected: "list()",
-		},
-		{
-			name:     "arguments are sorted by name",
-			tool:     "read",
-			args:     map[string]any{"path": "a.go", "limit": 10},
-			expected: `read(limit=10, path="a.go")`,
-		},
-		{
-			name:     "nil value renders as null",
-			tool:     "x",
-			args:     map[string]any{"v": nil},
-			expected: "x(v=null)",
-		},
-		{
-			name:     "boolean value",
-			tool:     "x",
-			args:     map[string]any{"v": true},
-			expected: "x(v=true)",
-		},
-		{
-			name:     "oversized string collapses to a size",
-			tool:     "x",
-			args:     map[string]any{"v": strings.Repeat("a", maxToolArgLen+1)},
-			expected: "x(v=<201 B>)",
-		},
-		{
-			name:     "map collapses to a key count when oversized",
-			tool:     "x",
-			args:     map[string]any{"v": map[string]any{"k": strings.Repeat("b", maxToolArgLen+1)}},
-			expected: "x(v={1 key})",
-		},
-		{
-			name:     "small map is encoded",
-			tool:     "x",
-			args:     map[string]any{"v": map[string]any{"k": 1}},
-			expected: `x(v={"k":1})`,
-		},
-		{
-			name:     "slice collapses to a length when oversized",
-			tool:     "x",
-			args:     map[string]any{"v": []any{strings.Repeat("c", maxToolArgLen+1)}},
-			expected: "x(v=[1])",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// given
-			tool, args := tc.tool, tc.args
-
-			// when
-			result := formatToolCall(tool, args)
-
-			// then
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
-func TestPlural(t *testing.T) {
-	tests := []struct {
-		name     string
-		n        int
-		expected string
-	}{
-		{name: "zero is plural", n: 0, expected: "0 keys"},
-		{name: "one is singular", n: 1, expected: "1 key"},
-		{name: "many is plural", n: 5, expected: "5 keys"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// when
-			result := plural(tc.n, "key")
-
-			// then
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
 
 func TestToolCallAndReturnBecomeOneLine(t *testing.T) {
 	// given
@@ -158,12 +64,7 @@ func TestTokensUsedUpdatesStatus(t *testing.T) {
 	c.TokensUsed(120)
 
 	// then
-	c.mu.Lock()
-	meta := c.lastMeta
-	cached := c.statusCache
-	c.mu.Unlock()
-	assert.Equal(t, 120, meta.TotalTokens)
-	assert.Nil(t, cached)
+	assert.Equal(t, 120, c.Status().Tokens)
 	obs.mu.Lock()
 	changes := obs.changes
 	obs.mu.Unlock()

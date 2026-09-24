@@ -47,6 +47,7 @@ type printedLine struct {
 }
 
 type mockedContext struct {
+	ctx       context.Context
 	agentFunc func() AgentController
 	printFunc func(kind Kind, text string)
 	clearFunc func() error
@@ -65,6 +66,13 @@ func (m *mockedContext) Print(kind Kind, text string) {
 	if m.printFunc != nil {
 		m.printFunc(kind, text)
 	}
+}
+
+func (m *mockedContext) Context() context.Context {
+	if m.ctx == nil {
+		return context.Background()
+	}
+	return m.ctx
 }
 
 func (m *mockedContext) Clear() error {
