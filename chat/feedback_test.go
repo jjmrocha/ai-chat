@@ -137,3 +137,74 @@ func TestTurnClosesAnUnreturnedToolCall(t *testing.T) {
 	assert.Equal(t, "(no result)", activity[0].Detail)
 	assert.Empty(t, c.PendingTool())
 }
+
+func TestInterimTextBecomesReplyLine(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.InterimTextReceived("Let me check the config.")
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 1)
+	assert.Equal(t, command.Reply, lines[0].Kind)
+	assert.Equal(t, "Let me check the config.", lines[0].Text)
+}
+
+func TestInterimTextIsSanitized(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.InterimTextReceived("a\x1b]52;c;Zm9v\x07b\u009b\nc")
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 1)
+	assert.Equal(t, "ab\nc", lines[0].Text)
+}
+
+func TestBlankInterimTextIsDropped(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "empty", content: ""},
+		{name: "whitespace only", content: "  \n\t"},
+		{name: "escape sequences only", content: "\x1b[31m\x1b[0m"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			backend := &mockedAgentBackend{}
+			c, _ := newTestChat(t, backend)
+
+			// when
+			c.InterimTextReceived(tc.content)
+
+			// then
+			assert.Zero(t, c.TranscriptLen())
+		})
+	}
+}
+
+func TestInterimTextPrecedesToolActivity(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+	c.InterimTextReceived("checking")
+	c.ToolCalled("read", nil)
+
+	// when
+	c.ToolReturned("read", "ok", nil, time.Millisecond)
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 2)
+	assert.Equal(t, command.Reply, lines[0].Kind)
+	assert.Equal(t, command.Activity, lines[1].Kind)
+}

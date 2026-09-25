@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"strings"
 	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
@@ -42,6 +43,18 @@ func (c *Chat) closeToolCall(response string) {
 	}
 
 	c.appendLine(Line{Kind: command.Activity, Text: request, Detail: response})
+}
+
+// InterimTextReceived appends the text a model returned alongside its tool
+// calls as a [command.Reply] line. Text that is blank once sanitized is
+// ignored. It implements agent.Feedback and is called by the agent.
+func (c *Chat) InterimTextReceived(content string) {
+	text := sanitize(content)
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+
+	c.append(command.Reply, text)
 }
 
 // TokensUsed updates the token count shown in the status bar after each

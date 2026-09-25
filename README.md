@@ -187,9 +187,9 @@ have to match exactly — a `pingCmd` registered by value whose `Args()` is decl
 `*pingCmd` compiles fine and silently renders as a bare `/ping`.
 
 `command.Context` gives a command the agent (`Agent()`), the transcript (`Print`),
-session reset (`Clear`) and a cancellation context (`Context()`) — and nothing else. A command needing more than that is handed its
-own collaborator at construction, the way `/mcp` and `/skills` are, so no command can
-reach a capability it was not given.
+session reset (`Clear`) and a cancellation context (`Context()`) — and nothing else. A
+command needing more than that is handed its own collaborator at construction, the way
+`/mcp` and `/skills` are, so no command can reach a capability it was not given.
 
 `Run` is called on the core's worker goroutine, one command at a time, so it needs no
 locking of its own — but a slow `Run` blocks every queued input behind it. Pass
