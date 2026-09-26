@@ -166,6 +166,30 @@ func TestPendingNeverEmitsALineThatFillsTheTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestPendingNeverEmitsATab(t *testing.T) {
+	// given
+	code := "\t\tbuilder.WriteString(" + strings.Repeat("x", 30) + ")"
+	all := []chat.Line{
+		{Kind: command.Reply, Text: "Fix:\n\n```go\nfunc f() {\n" + code + "\n}\n```"},
+		{Kind: command.Activity, Text: "shell_run()", Detail: "a\tb"},
+		{Kind: command.Info, Text: "a\tb"},
+	}
+	core := &mockedChatCore{
+		nextFunc: linesFrom(all),
+	}
+	m := sized(t, core, 60, 24)
+
+	// when
+	blocks, _ := m.pending()
+
+	// then
+	require.Len(t, blocks, len(all))
+	for i, block := range blocks {
+		assert.NotContains(t, block, "\t",
+			"block %d (%v) has a tab, which the terminal widens past the measured width", i, all[i].Kind)
+	}
+}
+
 func TestPendingKeepsTheTurnSeparatorOnTheTelemetryBlock(t *testing.T) {
 	// given
 	all := []chat.Line{{Kind: command.Telemetry, Text: "7 tool calls · 12.3s"}}

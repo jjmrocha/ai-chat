@@ -46,6 +46,9 @@ func (m model) renderMarkdown(s string) string {
 	if m.renderer == nil {
 		return s
 	}
+	// glamour measures a tab as zero columns, so its padding overflows the line
+	// once the terminal expands it; lipgloss spaces tabs the same way.
+	s = strings.ReplaceAll(s, "\t", "    ")
 	out, err := m.renderer.Render(s)
 	if err != nil {
 		return s
