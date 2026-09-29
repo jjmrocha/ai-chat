@@ -67,6 +67,21 @@ func TestRenderBlockAppliesGlyphs(t *testing.T) {
 	}
 }
 
+func TestRenderActivityDetailUsesActivityStyle(t *testing.T) {
+	// given
+	m := sized(t, &mockedChatCore{}, 80, 24)
+	m.styles.activity = fg("1")
+	m.styles.telemetry = fg("6")
+
+	// when
+	result := m.renderActivity(chat.Line{Kind: command.Activity, Text: "read(x)", Detail: "ok"})
+
+	// then
+	params := sgrParams(result)
+	assert.Truef(t, params["31"], "activity head should carry the activity color in %q", result)
+	assert.Falsef(t, params["36"], "detail should carry the activity color, not the telemetry color, in %q", result)
+}
+
 func TestRenderBlockStylesMarkdownReplies(t *testing.T) {
 	tests := []struct {
 		name        string

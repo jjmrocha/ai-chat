@@ -39,7 +39,7 @@ func (m model) renderActivity(ln chat.Line) string {
 		return head
 	}
 
-	return head + "\n" + m.styles.telemetry.Render(detailPrefix+ln.Detail)
+	return head + "\n" + m.styles.activity.Render(detailPrefix+ln.Detail)
 }
 
 func (m model) renderMarkdown(s string) string {
