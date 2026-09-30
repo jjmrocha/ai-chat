@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/jjmrocha/ai-chat/chat"
+	"github.com/jjmrocha/ai-chat/command"
 )
 
 type chatCore interface {
@@ -19,6 +20,7 @@ type chatCore interface {
 	Submit(text string)
 	Cancel()
 	Cancelling() bool
+	Commands() []command.Command
 }
 
 type (

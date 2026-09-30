@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/jjmrocha/ai-chat/chat"
+	"github.com/jjmrocha/ai-chat/command"
 )
 
 func sized(t *testing.T, core chatCore, w, h int) model {
@@ -25,6 +26,7 @@ type mockedChatCore struct {
 	pendingCommandFunc func() string
 	submitFunc         func(text string)
 	cancellingFunc     func() bool
+	commandsFunc       func() []command.Command
 
 	busy      atomic.Bool
 	cancels   atomic.Int32
@@ -89,6 +91,30 @@ func (m *mockedChatCore) Cancelling() bool {
 		return false
 	}
 	return m.cancellingFunc()
+}
+
+func (m *mockedChatCore) Commands() []command.Command {
+	if m.commandsFunc == nil {
+		return nil
+	}
+	return m.commandsFunc()
+}
+
+type stubCommand struct {
+	name string
+	help string
+}
+
+func (s stubCommand) Name() string                { return s.name }
+func (s stubCommand) Help() string                { return s.help }
+func (s stubCommand) Run(command.Context, string) {}
+
+func stubCommands(names ...string) []command.Command {
+	cmds := make([]command.Command, len(names))
+	for i, name := range names {
+		cmds[i] = stubCommand{name: name, help: name + " help"}
+	}
+	return cmds
 }
 
 func linesFrom(all []chat.Line) func(chat.Cursor) ([]chat.Line, chat.Cursor) {

@@ -139,6 +139,10 @@ Keys: `Enter` sends, `Shift+Enter` (or `Alt+Enter` / `Ctrl+J`) adds a line, `↑
 prompt history, `Esc` cancels the running turn or command and drops queued prompts,
 `Ctrl+C` quits.
 
+Typing `/` at the start of the input shows the first matching command, with its help, in the
+row above the title bar: `↑` / `↓` step through the matches, `Tab` or `Enter` fills it in,
+`Esc` dismisses it.
+
 ### Colors
 
 There is one palette, internal to `ui`, and it cannot be switched — not by the user, not

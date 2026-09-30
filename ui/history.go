@@ -68,6 +68,8 @@ func (m *model) recallNewer() bool {
 func (m *model) recall(text string, ok bool) bool {
 	if ok {
 		m.setInput(text)
+		m.completer.update(text)
+		m.completer.close()
 	}
 	return ok
 }

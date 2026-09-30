@@ -14,6 +14,8 @@ type styles struct {
 	telemetry  lipgloss.Style
 	turnSep    lipgloss.Style
 	footer     lipgloss.Style
+	completion lipgloss.Style
+	selected   lipgloss.Style
 }
 
 func fg(color string) lipgloss.Style {
@@ -31,6 +33,8 @@ func newStyles() styles {
 		telemetry:  fg(p.Telemetry).Italic(true),
 		turnSep:    fg(p.TurnSep),
 		footer:     fg(p.Footer).Italic(true),
+		completion: fg(p.Footer),
+		selected:   fg(p.Selected).Bold(true),
 	}
 }
 

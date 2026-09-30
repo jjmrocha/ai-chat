@@ -9,6 +9,7 @@ type palette struct {
 	Activity   string
 	TurnSep    string
 	Telemetry  string
+	Selected   string
 }
 
 var defaultPalette = palette{
@@ -20,4 +21,5 @@ var defaultPalette = palette{
 	Activity:   "",
 	TurnSep:    "8",
 	Telemetry:  "",
+	Selected:   "6",
 }

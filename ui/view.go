@@ -33,8 +33,12 @@ func (m model) View() tea.View {
 }
 
 func (m model) liveRegion() string {
+	top := "\n" + m.thinkingLine() + "\n"
+	if m.completer.open() {
+		top = m.completionView()
+	}
 	return lipgloss.JoinVertical(lipgloss.Left,
-		m.thinkingLine(),
+		top,
 		m.titleBar,
 		m.input.View(),
 		m.styles.headerName.Render(m.hrule),

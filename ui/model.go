@@ -38,16 +38,18 @@ type model struct {
 	printRule string
 	titleBar  string
 
-	history history
+	history   history
+	completer completer
 }
 
 func newModel(core chatCore) model {
 	return model{
-		core:     core,
-		styles:   newStyles(),
-		input:    newInput(),
-		spinner:  newSpinner(),
-		renderer: newRenderer(0),
+		core:      core,
+		styles:    newStyles(),
+		input:     newInput(),
+		spinner:   newSpinner(),
+		renderer:  newRenderer(0),
+		completer: newCompleter(core.Commands()),
 	}
 }
 
@@ -123,6 +125,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.completer.update(m.input.Value())
 	return m, cmd
 }
 
@@ -149,6 +152,9 @@ func (m *model) spin(tick spinner.TickMsg) tea.Cmd {
 }
 
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	if m.completer.open() && m.handleCompletionKey(msg) {
+		return nil, true
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -159,10 +165,7 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case "enter":
-		text := m.input.Value()
-		m.input.Reset()
-		m.remember(text)
-		m.core.Submit(text)
+		m.submit(m.input.Value())
 		return nil, true
 	case "up":
 		return nil, m.recallOlder()
@@ -170,6 +173,12 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, m.recallNewer()
 	}
 	return nil, false
+}
+
+func (m *model) submit(text string) {
+	m.input.Reset()
+	m.remember(text)
+	m.core.Submit(text)
 }
 
 func (m *model) trackThinking() tea.Cmd {
