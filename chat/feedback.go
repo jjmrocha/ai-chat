@@ -95,5 +95,11 @@ func (c *Chat) SessionReset() {}
 // SessionStarted implements agent.Feedback. The core needs no action here.
 func (c *Chat) SessionStarted() {}
 
+// SessionResumed reports the resumed session's id as a [command.Info] line. It
+// implements agent.Feedback and is called by the agent.
+func (c *Chat) SessionResumed(sessionID string) {
+	c.append(command.Info, "Session "+sessionID+" resumed.")
+}
+
 // SessionClosed implements agent.Feedback. The core needs no action here.
 func (c *Chat) SessionClosed() {}

@@ -115,6 +115,22 @@ func TestContextCompactedReadsLikeTheOtherSessionNotices(t *testing.T) {
 	assert.Empty(t, lines[0].Detail)
 }
 
+func TestSessionResumedReportsTheSessionID(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.SessionResumed("abc")
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 1)
+	assert.Equal(t, command.Info, lines[0].Kind)
+	assert.Equal(t, "Session abc resumed.", lines[0].Text)
+	assert.Empty(t, lines[0].Detail)
+}
+
 func TestTurnClosesAnUnreturnedToolCall(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
