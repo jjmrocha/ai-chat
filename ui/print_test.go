@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -224,4 +225,61 @@ func TestPendingIsUnwrappedBeforeTheFirstResize(t *testing.T) {
 	// then
 	require.Len(t, blocks, 1)
 	assert.Contains(t, blocks[0], strings.Repeat("noted ", 40))
+}
+
+func firstCallLines(all []chat.Line) func(chat.Cursor) ([]chat.Line, chat.Cursor) {
+	served := false
+	return func(cur chat.Cursor) ([]chat.Line, chat.Cursor) {
+		if served {
+			return nil, cur
+		}
+		served = true
+		return all, cur
+	}
+}
+
+func TestPrintBacklogWritesTheTranscriptInOrder(t *testing.T) {
+	// given
+	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{
+		{Kind: command.User, Text: "first"},
+		{Kind: command.Info, Text: "second"},
+	})}
+	var out strings.Builder
+
+	// when
+	newModel(core).printBacklog(&out, 80, 24)
+
+	// then
+	printed := out.String()
+	first := strings.Index(printed, "first")
+	second := strings.Index(printed, "second")
+	require.GreaterOrEqual(t, first, 0)
+	assert.Greater(t, second, first)
+}
+
+func TestPrintBacklogLeavesNothingForEmit(t *testing.T) {
+	// given
+	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{{Kind: command.Info, Text: "one"}})}
+	var out strings.Builder
+	m := newModel(core).printBacklog(&out, 80, 24)
+
+	// when
+	_, cmd := m.emit()
+
+	// then
+	assert.Nil(t, cmd)
+}
+
+func TestPrintBacklogWithoutATerminalSizeLeavesTheLinesForEmit(t *testing.T) {
+	// given
+	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{{Kind: command.Info, Text: "one"}})}
+	var out strings.Builder
+	m := newModel(core).printBacklog(&out, 0, 0)
+
+	// when
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// then
+	assert.Empty(t, out.String())
+	assert.True(t, next.(model).printing)
 }

@@ -19,6 +19,7 @@ type agentBackend interface {
 	ModelInfo(ctx context.Context) *agent.ModelInfo
 	CompactContext(ctx context.Context)
 	ResetSession() error
+	Messages() []llm.Message
 }
 
 // Chat is the headless conversation core. Create one with [New] and hand it to

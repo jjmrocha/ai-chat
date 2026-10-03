@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
+	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,6 +130,74 @@ func TestSessionResumedReportsTheSessionID(t *testing.T) {
 	assert.Equal(t, command.Info, lines[0].Kind)
 	assert.Equal(t, "Session abc resumed.", lines[0].Text)
 	assert.Empty(t, lines[0].Detail)
+}
+
+func TestSessionResumedReplaysTheConversationBeforeTheNotice(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{messages: []llm.Message{
+		llm.UserMessage{Content: "first question"},
+		llm.AssistantMessage{Content: "first answer"},
+		llm.UserMessage{Content: "second question"},
+		llm.AssistantMessage{Content: "second answer"},
+	}}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.SessionResumed("abc")
+
+	// then
+	assert.Equal(t, []Line{
+		{Kind: command.User, Text: "first question"},
+		{Kind: command.Reply, Text: "first answer"},
+		{Kind: command.User, Text: "second question"},
+		{Kind: command.Reply, Text: "second answer"},
+		{Kind: command.Info, Text: "Session abc resumed."},
+	}, c.Transcript())
+}
+
+func TestSessionResumedSkipsToolTurns(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{messages: []llm.Message{
+		llm.UserMessage{Content: "read it"},
+		llm.AssistantMessage{
+			Content:   "reading",
+			ToolCalls: []llm.ToolCall{{ID: "1", Name: "read_file"}},
+		},
+		llm.ToolMessage{ToolCallID: "1", ToolName: "read_file", Content: "data"},
+		llm.AssistantMessage{Content: "done"},
+	}}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.SessionResumed("abc")
+
+	// then
+	assert.Equal(t, []Line{
+		{Kind: command.User, Text: "read it"},
+		{Kind: command.Reply, Text: "done"},
+		{Kind: command.Info, Text: "Session abc resumed."},
+	}, c.Transcript())
+}
+
+func TestSessionResumedShowsTheLastResponseTokens(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{messages: []llm.Message{
+		llm.UserMessage{Content: "read it"},
+		llm.AssistantMessage{Content: "first", Stats: llm.Stats{TotalTokens: 100}},
+		llm.UserMessage{Content: "again"},
+		llm.AssistantMessage{
+			ToolCalls: []llm.ToolCall{{ID: "1", Name: "read_file"}},
+			Stats:     llm.Stats{TotalTokens: 250},
+		},
+		llm.ToolMessage{ToolCallID: "1", ToolName: "read_file", Content: "data"},
+	}}
+	c, _ := newTestChat(t, backend)
+
+	// when
+	c.SessionResumed("abc")
+
+	// then
+	assert.Equal(t, 250, c.Status().Tokens)
 }
 
 func TestTurnClosesAnUnreturnedToolCall(t *testing.T) {

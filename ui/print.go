@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"io"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -24,6 +26,25 @@ func (m model) emit() (tea.Model, tea.Cmd) {
 	m.printing = true
 
 	return m, tea.Sequence(m.printCmds(blocks)...)
+}
+
+// printBacklog writes the transcript the core already holds straight to w,
+// before the program starts. Printing it through tea.Println instead would
+// misplace it: until the first frame is flushed, the renderer still believes
+// the live region spans the whole terminal.
+func (m model) printBacklog(w io.Writer, width, height int) model {
+	if width <= 0 || height <= 0 {
+		return m
+	}
+
+	m.setSize(width, height)
+	blocks, next := m.pending()
+	for _, b := range blocks {
+		_, _ = fmt.Fprintln(w, b)
+	}
+	m.cursor = next
+
+	return m
 }
 
 func (m model) printCmds(blocks []string) []tea.Cmd {

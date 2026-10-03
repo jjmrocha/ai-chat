@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
+	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/command"
@@ -54,7 +56,9 @@ func (o *observer) Quit() {
 // returns. It returns the Bubble Tea program's error, or nil on a clean exit.
 func Run(ctx context.Context, core *chat.Chat) error {
 	core.SetContext(ctx)
-	p := tea.NewProgram(newModel(core), tea.WithContext(ctx))
+	width, height, _ := term.GetSize(os.Stdout.Fd())
+	m := newModel(core).printBacklog(os.Stdout, width, height)
+	p := tea.NewProgram(m, tea.WithContext(ctx))
 	core.SetObserver(&observer{program: p})
 	defer core.Close()
 	_, err := p.Run()

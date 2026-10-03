@@ -6,6 +6,7 @@ import (
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
+	"github.com/jjmrocha/ai-toolkit/llm"
 )
 
 var _ agent.Feedback = (*Chat)(nil)
@@ -95,10 +96,32 @@ func (c *Chat) SessionReset() {}
 // SessionStarted implements agent.Feedback. The core needs no action here.
 func (c *Chat) SessionStarted() {}
 
-// SessionResumed reports the resumed session's id as a [command.Info] line. It
-// implements agent.Feedback and is called by the agent.
+// SessionResumed replays the restored conversation, user inputs and final
+// replies only, shows the token count of its last model response in the status
+// bar, then reports the session's id as a [command.Info] line. It implements
+// agent.Feedback and is called by the agent.
 func (c *Chat) SessionResumed(sessionID string) {
+	tokens := 0
+	for _, msg := range c.agent.Messages() {
+		if m, ok := msg.(llm.AssistantMessage); ok {
+			tokens = m.Stats.TotalTokens
+		}
+		c.replay(msg)
+	}
+
+	c.TokensUsed(tokens)
 	c.append(command.Info, "Session "+sessionID+" resumed.")
+}
+
+func (c *Chat) replay(msg llm.Message) {
+	switch m := msg.(type) {
+	case llm.UserMessage:
+		c.append(command.User, m.Content)
+	case llm.AssistantMessage:
+		if len(m.ToolCalls) == 0 {
+			c.append(command.Reply, m.Content)
+		}
+	}
 }
 
 // SessionClosed implements agent.Feedback. The core needs no action here.

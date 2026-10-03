@@ -19,6 +19,7 @@ type mockedAgentBackend struct {
 	modelInfoFunc       func(ctx context.Context) *agent.ModelInfo
 	compactContextFunc  func(ctx context.Context)
 	resetSessionFunc    func() error
+	messages            []llm.Message
 
 	processed     []string
 	modelInfoHits int
@@ -78,6 +79,10 @@ func (m *mockedAgentBackend) ResetSession() error {
 		return nil
 	}
 	return m.resetSessionFunc()
+}
+
+func (m *mockedAgentBackend) Messages() []llm.Message {
+	return m.messages
 }
 
 func (m *mockedAgentBackend) inputs() []string {
