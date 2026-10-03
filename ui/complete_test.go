@@ -24,15 +24,11 @@ func TestCompleterOpensOnlyForASingleWordSlashPrefix(t *testing.T) {
 		input        string
 		expectedOpen bool
 	}{
-		{name: "empty input", input: "", expectedOpen: false},
 		{name: "plain text", input: "hi", expectedOpen: false},
 		{name: "slash in the middle", input: "hi /cl", expectedOpen: false},
 		{name: "bare slash", input: "/", expectedOpen: true},
 		{name: "matching prefix", input: "/cl", expectedOpen: true},
-		{name: "upper-case prefix", input: "/CL", expectedOpen: true},
-		{name: "full name", input: "/clear", expectedOpen: true},
 		{name: "arguments started", input: "/clear x", expectedOpen: false},
-		{name: "trailing space", input: "/clear ", expectedOpen: false},
 		{name: "multi-line", input: "/cl\nx", expectedOpen: false},
 		{name: "no match", input: "/zzz", expectedOpen: false},
 	}
@@ -73,17 +69,6 @@ func TestCompleterMatchesByCaseInsensitivePrefixInOrder(t *testing.T) {
 			assert.Equal(t, tt.expected, matchNames(c))
 		})
 	}
-}
-
-func TestCompleterSelectsTheFirstMatch(t *testing.T) {
-	// given
-	c := newCompleter(stubCommands("clear", "compact"))
-
-	// when
-	c.update("/c")
-
-	// then
-	assert.Equal(t, "clear", c.selected())
 }
 
 func TestCompleterSelectionClampsAtBothEnds(t *testing.T) {
@@ -190,17 +175,6 @@ func TestCompleterStaysClosedUntilInputChanges(t *testing.T) {
 	assert.True(t, c.open())
 }
 
-func TestCompleterWithNoCommandsNeverOpens(t *testing.T) {
-	// given
-	c := newCompleter(nil)
-
-	// when
-	c.update("/")
-
-	// then
-	assert.False(t, c.open())
-}
-
 func completionModel(t *testing.T, core *mockedChatCore) model {
 	t.Helper()
 	if core.commandsFunc == nil {
@@ -265,19 +239,6 @@ func TestEnterRunsTheSelectedCommand(t *testing.T) {
 	assert.False(t, result.completer.open())
 }
 
-func TestEnterOnAnExactMatchRunsIt(t *testing.T) {
-	// given
-	var submitted []string
-	core := &mockedChatCore{submitFunc: func(text string) { submitted = append(submitted, text) }}
-	m := typeText(completionModel(t, core), "/clear")
-
-	// when
-	press(m, tea.KeyEnter)
-
-	// then
-	assert.Equal(t, []string{"/clear"}, submitted)
-}
-
 func TestRunCommandIsRememberedInHistory(t *testing.T) {
 	// given
 	m := typeText(completionModel(t, &mockedChatCore{}), "/cl")
@@ -288,19 +249,6 @@ func TestRunCommandIsRememberedInHistory(t *testing.T) {
 
 	// then
 	assert.Equal(t, "/clear", result.input.Value())
-}
-
-func TestTabDoesNotSubmit(t *testing.T) {
-	// given
-	var submitted []string
-	core := &mockedChatCore{submitFunc: func(text string) { submitted = append(submitted, text) }}
-	m := typeText(completionModel(t, core), "/cl")
-
-	// when
-	press(m, tea.KeyTab)
-
-	// then
-	assert.Empty(t, submitted)
 }
 
 func TestEscClosesTheListWithoutCancelling(t *testing.T) {

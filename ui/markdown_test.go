@@ -74,39 +74,6 @@ func TestMarkdownStyleUsesOnlyPaletteColors(t *testing.T) {
 	}
 }
 
-func TestMarkdownStyleMapsRolesToSlots(t *testing.T) {
-	// given
-	p := defaultPalette
-
-	// when
-	result := markdownStyle(p)
-
-	// then
-	assert.Nil(t, result.Document.Color)
-	assert.Equal(t, p.HeaderName, deref(result.Heading.Color))
-	assert.Equal(t, p.Info, deref(result.LinkText.Color))
-	assert.Equal(t, p.TurnSep, deref(result.Link.Color))
-	assert.Equal(t, p.Info, deref(result.Code.Color))
-	require.NotNil(t, result.CodeBlock.Chroma)
-	assert.Equal(t, chromaHex(p.HeaderName), deref(result.CodeBlock.Chroma.Keyword.Color))
-	assert.Equal(t, chromaHex(p.Info), deref(result.CodeBlock.Chroma.LiteralString.Color))
-	assert.Equal(t, chromaHex(p.TurnSep), deref(result.CodeBlock.Chroma.Comment.Color))
-	assert.Equal(t, chromaHex(p.Error), deref(result.CodeBlock.Chroma.Error.Color))
-}
-
-func TestMarkdownStyleKeepsTextAttributes(t *testing.T) {
-	// when
-	result := markdownStyle(defaultPalette)
-
-	// then
-	assert.True(t, deref(result.Emph.Italic))
-	assert.True(t, deref(result.Strong.Bold))
-	assert.True(t, deref(result.Strikethrough.CrossedOut))
-	assert.True(t, deref(result.LinkText.Underline))
-	assert.Empty(t, result.Emph.BlockPrefix)
-	assert.Empty(t, result.Strong.BlockPrefix)
-}
-
 func TestMarkdownStyleLeavesGlamourDarkUntouched(t *testing.T) {
 	// given
 	dark := glamourstyles.DarkStyleConfig

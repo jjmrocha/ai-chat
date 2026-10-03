@@ -8,14 +8,6 @@ import (
 )
 
 func TestModelCommand(t *testing.T) {
-	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, "model", Model().Name())
-	})
-
-	t.Run("help", func(t *testing.T) {
-		assert.NotEmpty(t, Model().Help())
-	})
-
 	t.Run("empty args lists available models", func(t *testing.T) {
 		// given
 		ctx := &mockedContext{

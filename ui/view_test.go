@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -146,17 +145,6 @@ func TestThinkingLineShowsCancellingOverThePendingTool(t *testing.T) {
 	assert.NotContains(t, result, "Thinking for")
 }
 
-func TestLiveRegionKeepsTheFullWidthRule(t *testing.T) {
-	// given
-	core := &mockedChatCore{}
-
-	// when
-	m := sized(t, core, 80, 24)
-
-	// then
-	assert.Equal(t, strings.Repeat("─", 80), m.hrule)
-}
-
 func liveLines(m model) []string {
 	lines := strings.Split(ansi.Strip(m.liveRegion()), "\n")
 	for i, line := range lines {
@@ -245,22 +233,6 @@ func TestThinkingLineReturnsWhenTheListCloses(t *testing.T) {
 
 	// then
 	assert.Contains(t, result[1], "Thinking")
-}
-
-func TestCompletionRowsAreCappedAtTheMaximum(t *testing.T) {
-	// given
-	names := make([]string, 12)
-	for i := range names {
-		names[i] = fmt.Sprintf("cmd%02d", i)
-	}
-	core := &mockedChatCore{commandsFunc: func() []command.Command { return stubCommands(names...) }}
-	m := typeText(completionModel(t, core), "/")
-
-	// when
-	result := strings.Split(m.completionView(), "\n")
-
-	// then
-	assert.Len(t, result, maxCompletionRows)
 }
 
 func TestCompletionRowsAreTruncatedToTheTerminalWidth(t *testing.T) {

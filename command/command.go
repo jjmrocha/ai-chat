@@ -79,3 +79,13 @@ type Argumented interface {
 	// Return an empty string to render the name alone.
 	Args() string
 }
+
+// Prompt is the optional half of [Command] for commands that are not run but
+// sent to the agent: when Prompt returns true, the input is submitted as a user
+// turn exactly as typed, slash and all, and Run is never called.
+//
+// Like [Argumented], it is detected by type assertion on the registered value.
+type Prompt interface {
+	// Prompt reports whether the command's input is sent to the agent.
+	Prompt() bool
+}

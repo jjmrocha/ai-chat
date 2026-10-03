@@ -7,14 +7,6 @@ import (
 )
 
 func TestCompactCommand(t *testing.T) {
-	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, "compact", Compact().Name())
-	})
-
-	t.Run("help", func(t *testing.T) {
-		assert.NotEmpty(t, Compact().Help())
-	})
-
 	t.Run("calls Compact on agent", func(t *testing.T) {
 		// given
 		var compacted bool

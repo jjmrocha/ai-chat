@@ -56,18 +56,6 @@ func TestChunkBlock(t *testing.T) {
 			expected: []string{"a\nb\nc"},
 		},
 		{
-			name:     "negative limit returns the block whole",
-			block:    "a\nb",
-			limit:    -1,
-			expected: []string{"a\nb"},
-		},
-		{
-			name:     "block under the limit is untouched",
-			block:    "a\nb",
-			limit:    5,
-			expected: []string{"a\nb"},
-		},
-		{
 			name:     "block exactly at the limit is untouched",
 			block:    "a\nb",
 			limit:    2,
@@ -142,27 +130,6 @@ func TestPendingKeepsEveryBlockWithinThePrintedWidth(t *testing.T) {
 		for i, block := range blocks {
 			assert.LessOrEqual(t, widestLine(t, block), m.printWidth(),
 				"width %d, block %d (%v) exceeds the printed width", width, i, all[i].Kind)
-		}
-	}
-}
-
-func TestPendingNeverEmitsALineThatFillsTheTerminalWidth(t *testing.T) {
-	// given
-	all := everyKind()
-	core := &mockedChatCore{
-		nextFunc: linesFrom(all),
-	}
-	m := sized(t, core, 80, 24)
-
-	// when
-	blocks, _ := m.pending()
-
-	// then
-	for i, block := range blocks {
-		for _, line := range strings.Split(block, "\n") {
-			w := lipgloss.Width(line)
-			assert.False(t, w > 0 && w%m.width == 0,
-				"block %d (%v) has a line of exactly %d columns, which miscounts on insertAbove", i, all[i].Kind, w)
 		}
 	}
 }

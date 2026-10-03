@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func TestDefaultStatusFormatter(t *testing.T) {
 		result := defaultStatusFormatter(info)
 
 		// then
-		assert.NotEmpty(t, result)
+		assert.Equal(t, "— · ctx: 0% · tokens: 0", result)
 	})
 
 	t.Run("effort off omitted", func(t *testing.T) {
@@ -181,6 +182,31 @@ func TestStatusLooksTheModelUpAgainAfterASwitch(t *testing.T) {
 			require.Eventually(t, func() bool { return backend.infoHits() == 2 }, 2*time.Second, time.Millisecond)
 		})
 	}
+}
+
+func TestStatusDiscardsALookupOvertakenByASwitch(t *testing.T) {
+	// given
+	var c *Chat
+	var switched sync.Once
+	current := "m1"
+	backend := &mockedAgentBackend{
+		changeModelFunc: func(name string) error {
+			current = name
+			return nil
+		},
+		modelInfoFunc: func(context.Context) *agent.ModelInfo {
+			name := current
+			switched.Do(func() { _ = c.ChangeModel("m2") })
+			return &agent.ModelInfo{ModelName: name}
+		},
+	}
+	c, _ = newTestChat(t, backend)
+
+	// when
+	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Name == "m2" })
+
+	// then
+	assert.Equal(t, "m2", result.Name)
 }
 
 func TestStatusRetriesAFailedLookupOnlyAfterATurn(t *testing.T) {

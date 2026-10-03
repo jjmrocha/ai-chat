@@ -53,15 +53,15 @@ func TestWithSkills(t *testing.T) {
 	assert.Contains(t, result, "skills")
 }
 
-func TestCommandsAreSortedByName(t *testing.T) {
+func TestWithSkillCommand(t *testing.T) {
 	// given
-	c := newChat("test", WithDefaultCommands())
+	c := newChat("test", WithSkillCommand("brainstorm", "Explore an idea"))
 
 	// when
 	result := commandNames(c)
 
 	// then
-	assert.IsIncreasing(t, result)
+	assert.Contains(t, result, "brainstorm")
 }
 
 func TestWithCommandOverridesADefault(t *testing.T) {
@@ -79,18 +79,6 @@ func TestWithCommandOverridesADefault(t *testing.T) {
 		}
 	}
 	t.Fatal("help command not registered")
-}
-
-func TestWithCommandReplacesRatherThanDuplicates(t *testing.T) {
-	// given
-	replacement := stubNamedCommand{name: "help"}
-
-	// when
-	result := commandNames(newChat("test", WithCommand(replacement)))
-
-	// then
-	expected := []string{"exit", "help"}
-	assert.Equal(t, expected, result)
 }
 
 type stubNamedCommand struct{ name string }

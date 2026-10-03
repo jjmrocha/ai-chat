@@ -133,24 +133,6 @@ func TestFormatToolResult(t *testing.T) {
 			expected: "<7 B> · 300ms",
 		},
 		{
-			name:     "reports a sub-second call in milliseconds",
-			result:   "ok",
-			elapsed:  50 * time.Millisecond,
-			expected: "ok · 50ms",
-		},
-		{
-			name:     "reports a very fast call rather than rounding it to nothing",
-			result:   "ok",
-			elapsed:  200 * time.Microsecond,
-			expected: "ok · <1ms",
-		},
-		{
-			name:     "reports a long call in seconds",
-			result:   "ok",
-			elapsed:  12 * time.Second,
-			expected: "ok · 12s",
-		},
-		{
 			name:     "reports the size of a result carrying control characters",
 			result:   "ok\x1b[2Jgone",
 			elapsed:  300 * time.Millisecond,

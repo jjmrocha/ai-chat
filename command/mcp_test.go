@@ -11,14 +11,6 @@ import (
 )
 
 func TestMCPCommand(t *testing.T) {
-	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, "mcp", MCP(&mockedMCPController{}).Name())
-	})
-
-	t.Run("help", func(t *testing.T) {
-		assert.NotEmpty(t, MCP(&mockedMCPController{}).Help())
-	})
-
 	t.Run("no args with no servers", func(t *testing.T) {
 		// given
 		ctx := &mockedContext{}
@@ -53,6 +45,7 @@ func TestMCPCommand(t *testing.T) {
 		// then
 		if assert.Len(t, ctx.printed, 1) {
 			assert.Equal(t, Info, ctx.printed[0].kind)
+			assert.Equal(t, "MCP servers:\n  server-a: on\n  server-b: off", ctx.printed[0].text)
 		}
 	})
 

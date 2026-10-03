@@ -39,6 +39,13 @@ func WithSkills(coll command.SkillsController) Option {
 	return WithCommand(command.Skills(coll))
 }
 
+// WithSkillCommand registers /name, which sends its input to the agent as a
+// user turn, exactly as typed, so the agent can pick up the skill. /help and
+// completion show description.
+func WithSkillCommand(name, description string) Option {
+	return WithCommand(command.SkillCommand(name, description))
+}
+
 // WithDefaultCommands registers every built-in command that needs no external
 // dependency: /model, /effort, /compact and /clear. /mcp and /skills take a
 // collaborator and so have their own options.

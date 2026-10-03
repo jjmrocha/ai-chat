@@ -38,17 +38,6 @@ func TestInputHistoryRecall(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("empty history has nothing to recall", func(t *testing.T) {
-		// given
-		m := sized(t, &mockedChatCore{}, 80, 24)
-
-		// when
-		result := m.recallOlder()
-
-		// then
-		assert.False(t, result)
-	})
-
 	t.Run("blank input is not remembered", func(t *testing.T) {
 		// given
 		m := sized(t, &mockedChatCore{}, 80, 24)

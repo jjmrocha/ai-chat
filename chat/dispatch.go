@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"strings"
+	"unicode"
 
 	"github.com/jjmrocha/ai-chat/command"
 )
@@ -12,8 +13,10 @@ import (
 //
 // Text is trimmed, and empty input is ignored, as is anything submitted after
 // [Chat.Close]. Input beginning with "/" runs as a slash command, anything else
-// as an agent turn. Commands and turns share one queue and run strictly in
-// submission order, so a command never overlaps a turn or another command.
+// as an agent turn. A [command.Prompt] command is not run: its input is sent
+// to the agent as a turn, exactly as typed. Commands and turns share one queue
+// and run strictly in submission order, so a command never overlaps a turn or
+// another command.
 func (c *Chat) Submit(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -81,14 +84,14 @@ func (c *Chat) runItem(ctx context.Context, text string) {
 	defer c.enterWork(ctx)()
 
 	if strings.HasPrefix(text, "/") {
-		c.runCommand(text)
+		c.runCommand(ctx, text)
 		return
 	}
 	c.turn(ctx, text)
 }
 
-func (c *Chat) runCommand(input string) {
-	name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
+func (c *Chat) runCommand(ctx context.Context, input string) {
+	name, args := splitCommand(strings.TrimPrefix(input, "/"))
 
 	cmd, ok := c.commands.Get(name)
 	if !ok {
@@ -96,10 +99,23 @@ func (c *Chat) runCommand(input string) {
 		return
 	}
 
+	if p, ok := cmd.(command.Prompt); ok && p.Prompt() {
+		c.turn(ctx, input)
+		return
+	}
+
 	c.setPendingCommand(input)
 	defer c.setPendingCommand("")
 
 	cmd.Run(c, strings.TrimSpace(args))
+}
+
+func splitCommand(s string) (name, args string) {
+	i := strings.IndexFunc(s, unicode.IsSpace)
+	if i < 0 {
+		return s, ""
+	}
+	return s[:i], s[i:]
 }
 
 func (c *Chat) setPendingCommand(input string) {

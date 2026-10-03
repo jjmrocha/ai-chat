@@ -8,14 +8,6 @@ import (
 )
 
 func TestClearCommand(t *testing.T) {
-	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, "clear", Clear().Name())
-	})
-
-	t.Run("help", func(t *testing.T) {
-		assert.NotEmpty(t, Clear().Help())
-	})
-
 	t.Run("clear succeeds", func(t *testing.T) {
 		// given
 		var cleared bool

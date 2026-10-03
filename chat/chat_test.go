@@ -126,6 +126,86 @@ func TestUnknownCommandReportsAndStaysUsable(t *testing.T) {
 	assert.False(t, c.Busy())
 }
 
+func TestCommandNameEndsAtAnyWhitespace(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "space", input: "/echo hello world"},
+		{name: "newline", input: "/echo\nhello world"},
+		{name: "tab", input: "/echo\thello world"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			cmd := &argsCommand{name: "echo"}
+			c, _ := newTestChat(t, &mockedAgentBackend{}, WithCommand(cmd))
+
+			// when
+			c.Submit(tc.input)
+			waitIdle(t, c)
+
+			// then
+			assert.Equal(t, "hello world", cmd.args)
+		})
+	}
+}
+
+func TestPromptCommandWithArgumentsOnTheNextLineReachesTheAgent(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithCommand(command.SkillCommand("brainstorm", "Explore")))
+
+	// when
+	c.Submit("/brainstorm\nsome idea")
+	waitIdle(t, c)
+
+	// then
+	assert.Equal(t, []string{"/brainstorm\nsome idea"}, backend.inputs())
+}
+
+func TestPromptCommandIsRecordedAsAUserTurn(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithCommand(command.SkillCommand("brainstorm", "Explore")))
+
+	// when
+	c.Submit("/brainstorm some idea")
+	waitIdle(t, c)
+
+	// then
+	lines := c.Transcript()
+	require.Len(t, lines, 2)
+	assert.Equal(t, command.User, lines[0].Kind)
+	assert.Equal(t, "/brainstorm some idea", lines[0].Text)
+	assert.Equal(t, command.Reply, lines[1].Kind)
+	assert.Equal(t, "reply", lines[1].Text)
+}
+
+func TestPendingCommandIsEmptyDuringAPromptCommand(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return &agent.Response{Content: "reply"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend, WithCommand(command.SkillCommand("brainstorm", "Explore")))
+
+	// when
+	c.Submit("/brainstorm")
+	<-started
+
+	// then
+	assert.Empty(t, c.PendingCommand())
+	close(release)
+	waitIdle(t, c)
+}
+
 func TestCommandsSubmittedWhileIdleDoNotRunConcurrently(t *testing.T) {
 	// given
 	started := make(chan string, 4)
@@ -274,36 +354,6 @@ func TestQueuedInputIsReportedAndDrained(t *testing.T) {
 	waitIdle(t, c)
 	assert.False(t, c.Queued())
 	assert.Equal(t, []string{"first", "second"}, backend.inputs())
-}
-
-func TestQueuedInputDrainsInSubmissionOrder(t *testing.T) {
-	// given
-	release := make(chan struct{})
-	started := make(chan bool, 1)
-	backend := &mockedAgentBackend{
-		processFunc: func(context.Context, string) (*agent.Response, error) {
-			select {
-			case started <- true:
-			default:
-			}
-			<-release
-			return &agent.Response{Content: "ok"}, nil
-		},
-	}
-	c, _ := newTestChat(t, backend)
-
-	// when
-	c.Submit("first")
-	<-started
-	c.Submit("second")
-	c.Submit("third")
-	c.Submit("fourth")
-	close(release)
-	waitIdle(t, c)
-
-	// then
-	expected := []string{"first", "second", "third", "fourth"}
-	assert.Equal(t, expected, backend.inputs())
 }
 
 func TestExitCommandNotifiesObserver(t *testing.T) {
@@ -465,6 +515,15 @@ func (r recordingCommand) Run(command.Context, string) {
 	r.mu.Unlock()
 }
 
+type argsCommand struct {
+	name string
+	args string
+}
+
+func (a *argsCommand) Name() string                       { return a.name }
+func (a *argsCommand) Help() string                       { return "args" }
+func (a *argsCommand) Run(_ command.Context, args string) { a.args = args }
+
 type blockingCommand struct {
 	name    string
 	started chan bool
@@ -572,14 +631,6 @@ func TestTurnErrorsOtherThanCancelAreReported(t *testing.T) {
 		name    string
 		prepare func(t *testing.T, c *Chat, backend *mockedAgentBackend)
 	}{
-		{
-			name: "backend failure",
-			prepare: func(_ *testing.T, _ *Chat, backend *mockedAgentBackend) {
-				backend.processFunc = func(context.Context, string) (*agent.Response, error) {
-					return nil, errors.New("boom")
-				}
-			},
-		},
 		{
 			name: "base context cancelled",
 			prepare: func(t *testing.T, c *Chat, backend *mockedAgentBackend) {

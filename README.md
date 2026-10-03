@@ -89,6 +89,7 @@ have their own options because they take one.
 | `WithDefaultCommands()` | `/clear` | Reset conversation |
 | `WithMCP(mgr)` | `/mcp [on\|off] [name]` | Show or toggle MCP servers |
 | `WithSkills(coll)` | `/skills` | List available skills |
+| `WithSkillCommand(name, desc)` | `/name [text]` | Send the input, as typed, to the agent as a user turn |
 
 Each of the four defaults is also available individually as `WithModelCommand()`,
 `WithEffortCommand()`, `WithCompactCommand()` and `WithClearCommand()`. Registering a
@@ -253,6 +254,19 @@ core := chat.New("CHAT", ag, chat.WithSkills(skillColl))
 
 `/skills` lists what is registered. Nothing is discovered automatically — a skill reaches
 the model only because `Add` put it there.
+
+To invoke a skill as a slash command, register it with `WithSkillCommand`:
+
+```go
+core := chat.New("CHAT", ag,
+	chat.WithSkills(skillColl),
+	chat.WithSkillCommand("stock-research", "Research a stock"),
+)
+```
+
+`/stock-research AAPL` completes and appears in `/help` like any command, but it is not
+run: the line is sent to the agent as a user turn, exactly as typed, and the model loads
+the skill from its catalog.
 
 > **Security:** a skill folder is trusted input, like an MCP server command. The
 > `skill_execute_file` tool runs files the folder ships with the authority and environment

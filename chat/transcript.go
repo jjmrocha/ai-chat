@@ -39,6 +39,8 @@ func (c *Chat) Transcript() []Line {
 // zero when [Chat.Clear] resets the session. A length alone cannot tell a reset
 // that has since regrown from new lines; use [Chat.Next] to follow the
 // transcript.
+//
+// Deprecated: Use [Chat.Next].
 func (c *Chat) TranscriptLen() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -49,6 +51,8 @@ func (c *Chat) TranscriptLen() int {
 // that has already shown the first n lines. It returns nil when n is negative
 // or past the end, which is what a caller sees after [Chat.Clear] has reset the
 // transcript beneath it.
+//
+// Deprecated: Use [Chat.Next].
 func (c *Chat) Since(n int) []Line {
 	c.mu.Lock()
 	defer c.mu.Unlock()

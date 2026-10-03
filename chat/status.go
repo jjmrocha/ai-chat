@@ -18,6 +18,7 @@ type modelState struct {
 	fresh    bool
 	cancel   context.CancelFunc
 	reported bool
+	gen      uint64
 }
 
 // Status returns the current model, effort and context usage. It never waits
@@ -63,23 +64,27 @@ func (c *Chat) startLookupLocked() func() {
 
 	ctx, cancel := context.WithCancel(c.baseCtx)
 	c.model.cancel = cancel
+	gen := c.model.gen
 	c.work.Add(1)
 	return func() {
 		defer c.work.Done()
 		defer cancel()
-		c.lookupModel(ctx)
+		c.lookupModel(ctx, gen)
 	}
 }
 
-func (c *Chat) lookupModel(ctx context.Context) {
+func (c *Chat) lookupModel(ctx context.Context, gen uint64) {
 	c.agentMu.Lock()
 	info := c.agent.ModelInfo(ctx)
 	c.agentMu.Unlock()
 
 	c.mutate(func() {
+		c.model.cancel = nil
+		if gen != c.model.gen {
+			return
+		}
 		c.model.info = info
 		c.model.fresh = true
-		c.model.cancel = nil
 		if info != nil {
 			c.model.reported = false
 		}
@@ -90,6 +95,7 @@ func (c *Chat) invalidateModel() {
 	c.mu.Lock()
 	c.model.fresh = false
 	c.model.reported = false
+	c.model.gen++
 	c.mu.Unlock()
 }
 

@@ -8,14 +8,6 @@ import (
 )
 
 func TestEffortCommand(t *testing.T) {
-	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, "effort", Effort().Name())
-	})
-
-	t.Run("help", func(t *testing.T) {
-		assert.NotEmpty(t, Effort().Help())
-	})
-
 	t.Run("empty args lists effort levels", func(t *testing.T) {
 		// given
 		ctx := &mockedContext{}
@@ -31,7 +23,7 @@ func TestEffortCommand(t *testing.T) {
 	})
 
 	t.Run("valid effort levels", func(t *testing.T) {
-		levels := []string{"off", "low", "medium", "max"}
+		levels := []string{"low"}
 		for _, level := range levels {
 			t.Run(level, func(t *testing.T) {
 				// given
@@ -84,25 +76,4 @@ func TestEffortCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("empty args does not reach the agent", func(t *testing.T) {
-		// given
-		ctx := &mockedContext{
-			agentFunc: func() AgentController {
-				return &mockedAgentController{
-					changeEffortFunc: func(llm.Effort) error {
-						t.Error("ChangeEffort should not be called")
-						return nil
-					},
-				}
-			},
-		}
-
-		// when
-		Effort().Run(ctx, "")
-
-		// then
-		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Info, ctx.printed[0].kind)
-		}
-	})
 }

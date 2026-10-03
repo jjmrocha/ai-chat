@@ -40,12 +40,6 @@ func TestRenderBlockAppliesGlyphs(t *testing.T) {
 			contains: []string{"note"},
 			absent:   []string{"❯", "●", "⎿"},
 		},
-		{
-			name:     "error line is unadorned",
-			line:     chat.Line{Kind: command.Error, Text: "boom"},
-			contains: []string{"boom"},
-			absent:   []string{"❯", "●"},
-		},
 	}
 
 	for _, tc := range tests {

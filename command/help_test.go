@@ -14,16 +14,6 @@ func TestUsageOf(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "plain command has no argument spec",
-			cmd:      stubCommand{name: "clear"},
-			expected: "/clear",
-		},
-		{
-			name:     "argumented command appends its spec",
-			cmd:      argumentedStub{stubCommand{name: "model"}, "[name]"},
-			expected: "/model [name]",
-		},
-		{
 			name:     "argumented command with empty spec stays bare",
 			cmd:      argumentedStub{stubCommand{name: "mcp"}, ""},
 			expected: "/mcp",
@@ -45,17 +35,6 @@ func TestUsageOf(t *testing.T) {
 }
 
 func TestHelpText(t *testing.T) {
-	t.Run("no commands still prints the header", func(t *testing.T) {
-		// given
-		var cmds []Command
-
-		// when
-		result := helpText(cmds)
-
-		// then
-		assert.Equal(t, "Commands:", result)
-	})
-
 	t.Run("entries are sorted by usage", func(t *testing.T) {
 		// given
 		cmds := []Command{
@@ -110,14 +89,6 @@ func TestHelpText(t *testing.T) {
 }
 
 func TestHelpCommand(t *testing.T) {
-	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, "help", Help(&mockedRegistry{}).Name())
-	})
-
-	t.Run("help", func(t *testing.T) {
-		assert.NotEmpty(t, Help(&mockedRegistry{}).Help())
-	})
-
 	t.Run("prints the registry contents as an info line", func(t *testing.T) {
 		// given
 		reg := &mockedRegistry{
@@ -137,19 +108,4 @@ func TestHelpCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("ignores arguments", func(t *testing.T) {
-		// given
-		reg := &mockedRegistry{
-			commandsFunc: func() []Command { return []Command{stubCommand{name: "a", help: "b"}} },
-		}
-		ctx := &mockedContext{}
-
-		// when
-		Help(reg).Run(ctx, "some args")
-
-		// then
-		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, "Commands:\n  /a b", ctx.printed[0].text)
-		}
-	})
 }

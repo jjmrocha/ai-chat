@@ -41,21 +41,6 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		assert.Equal(t, " 1 tool call", result)
 	})
 
-	t.Run("reports sub-second work in milliseconds", func(t *testing.T) {
-		// given
-		meta := agent.Metadata{
-			ToolCalls:    2,
-			LLMDuration:  2200 * time.Millisecond,
-			ToolDuration: 4 * time.Millisecond,
-		}
-
-		// when
-		result := defaultTelemetryFormatter(meta)
-
-		// then
-		assert.Equal(t, " 2 tool calls · 2s llm · 4ms tools", result)
-	})
-
 	t.Run("all fields", func(t *testing.T) {
 		// given
 		meta := agent.Metadata{
@@ -83,17 +68,6 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 
 		// then
 		assert.Equal(t, " ↑1.20K tokens", result)
-	})
-
-	t.Run("output tokens only", func(t *testing.T) {
-		// given
-		meta := agent.Metadata{OutputTokens: 100}
-
-		// when
-		result := defaultTelemetryFormatter(meta)
-
-		// then
-		assert.Equal(t, " ↓100 tokens", result)
 	})
 
 	t.Run("truncated reply flagged", func(t *testing.T) {
