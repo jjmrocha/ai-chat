@@ -7,8 +7,8 @@
 // its usage.
 //
 // Commands never touch the chat core directly. They receive a [Context], which
-// exposes the transcript, session reset and the agent; anything narrower — MCP
-// servers, the skill catalog, the registry, the quit signal — is injected into
-// the individual command at construction, so no command can reach a capability
-// it was not given.
+// writes their output to the transcript and exposes session reset and the
+// agent; anything narrower — MCP servers, the skill catalog, the registry, the
+// quit signal — is injected into the individual command at construction, so no
+// command can reach a capability it was not given.
 package command

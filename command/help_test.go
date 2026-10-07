@@ -103,7 +103,7 @@ func TestHelpCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Info, ctx.printed[0].kind)
+			assert.Equal(t, infoStream, ctx.printed[0].kind)
 			assert.Equal(t, "Commands:\n  /clear Reset conversation", ctx.printed[0].text)
 		}
 	})

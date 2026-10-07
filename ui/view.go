@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/internal/format"
 )
 
@@ -73,22 +74,22 @@ func (m model) thinkingLine() string {
 }
 
 func (m model) thinkingLabel() string {
-	if m.core.Cancelling() {
-		return "Cancelling…"
-	}
-
+	p := m.core.Progress()
 	elapsed := format.Duration(time.Since(m.thinkingSince))
-	if tool := m.core.PendingTool(); tool != "" {
-		return tool + " · " + elapsed
+	switch p.Stage {
+	case chat.Cancelling:
+		return "Cancelling…"
+	case chat.RunningTool:
+		return p.Detail + " · " + elapsed
+	case chat.RunningCommand:
+		return "Waiting for " + p.Detail + " · " + elapsed
+	default:
+		return "Thinking for " + elapsed
 	}
-	if cmd := m.core.PendingCommand(); cmd != "" {
-		return "Waiting for " + cmd + " · " + elapsed
-	}
-	return "Thinking for " + elapsed
 }
 
 func (m model) placeholder() string {
-	if m.core.Queued() {
+	if m.core.Progress().Queued {
 		return queuedPlaceholder
 	}
 	return idlePlaceholder

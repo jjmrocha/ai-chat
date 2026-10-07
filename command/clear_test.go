@@ -41,7 +41,7 @@ func TestClearCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Error, ctx.printed[0].kind)
+			assert.Equal(t, errorStream, ctx.printed[0].kind)
 			assert.Equal(t, "Error: session error", ctx.printed[0].text)
 		}
 	})

@@ -2,14 +2,12 @@ package chat
 
 import (
 	"context"
-	"errors"
 
-	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
 )
 
 func (c *Chat) turn(ctx context.Context, text string) {
-	c.append(command.User, text)
+	c.append(User, text)
 
 	resp, err := c.agent.Process(ctx, text)
 	c.closeToolCall(formatToolResult("", nil, 0))
@@ -31,16 +29,16 @@ func (c *Chat) recordTurn(resp *agent.Response, err error) {
 
 func (c *Chat) reportTurn(ctx context.Context, resp *agent.Response, err error) {
 	switch {
-	case err != nil && errors.Is(context.Cause(ctx), errCancelled):
-		c.append(command.Info, "Cancelled.")
+	case err != nil && cancelledByUser(ctx):
+		c.append(Info, "Cancelled.")
 	case err != nil:
-		c.append(command.Error, "Error: "+err.Error())
+		c.append(Error, "Error: "+err.Error())
 	case resp != nil:
-		c.append(command.Reply, resp.Content)
+		c.append(Reply, resp.Content)
 		if line := c.telemetryFmt(resp.Metadata); line != "" {
-			c.append(command.Telemetry, line)
+			c.append(Telemetry, line)
 		}
 	default:
-		c.append(command.Error, "No response received.")
+		c.append(Error, "No response received.")
 	}
 }

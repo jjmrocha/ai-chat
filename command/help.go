@@ -34,7 +34,7 @@ func (helpCmd) Help() string {
 }
 
 func (c helpCmd) Run(ctx Context, _ string) {
-	ctx.Print(Info, helpText(c.reg.Commands()))
+	ctx.Info(helpText(c.reg.Commands()))
 }
 
 func helpText(cmds []Command) string {

@@ -22,5 +22,5 @@ func (clearCmd) Run(ctx Context, _ string) {
 		return
 	}
 
-	ctx.Print(Info, "Context cleared.")
+	ctx.Info("Context cleared.")
 }

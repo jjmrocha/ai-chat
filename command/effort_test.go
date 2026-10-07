@@ -17,7 +17,7 @@ func TestEffortCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Info, ctx.printed[0].kind)
+			assert.Equal(t, infoStream, ctx.printed[0].kind)
 			assert.Equal(t, "Effort levels:\n  off\n  low\n  medium\n  max", ctx.printed[0].text)
 		}
 	})
@@ -71,7 +71,7 @@ func TestEffortCommand(t *testing.T) {
 		// then
 		assert.Equal(t, llm.Effort("extreme"), changed, "the level is delegated, not validated locally")
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Error, ctx.printed[0].kind)
+			assert.Equal(t, errorStream, ctx.printed[0].kind)
 			assert.Equal(t, "Effort must be: off, low, medium, max", ctx.printed[0].text)
 		}
 	})

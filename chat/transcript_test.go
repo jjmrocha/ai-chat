@@ -3,28 +3,27 @@ package chat
 import (
 	"testing"
 
-	"github.com/jjmrocha/ai-chat/command"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNextReturnsOnlyUnseenLines(t *testing.T) {
 	// given
 	c, _ := newTestChat(t, &mockedAgentBackend{})
-	c.Print(command.Info, "one")
+	c.append(Info, "one")
 	_, cur := c.Next(Cursor{})
-	c.Print(command.Info, "two")
+	c.append(Info, "two")
 
 	// when
 	lines, _ := c.Next(cur)
 
 	// then
-	assert.Equal(t, []Line{{Kind: command.Info, Text: "two"}}, lines)
+	assert.Equal(t, []Line{{Kind: Info, Text: "two"}}, lines)
 }
 
 func TestNextWithNothingNewReturnsNoLines(t *testing.T) {
 	// given
 	c, _ := newTestChat(t, &mockedAgentBackend{})
-	c.Print(command.Info, "one")
+	c.append(Info, "one")
 	_, cur := c.Next(Cursor{})
 
 	// when
@@ -38,26 +37,26 @@ func TestNextWithNothingNewReturnsNoLines(t *testing.T) {
 func TestNextAfterClearStartsFromTheNewTranscript(t *testing.T) {
 	// given
 	c, _ := newTestChat(t, &mockedAgentBackend{})
-	c.Print(command.Info, "a")
+	c.append(Info, "a")
 	_, cur := c.Next(Cursor{})
-	_ = c.Clear()
-	c.Print(command.Info, "cleared")
-	c.Print(command.User, "hi")
+	_ = c.clear()
+	c.append(Info, "cleared")
+	c.append(User, "hi")
 
 	// when
 	lines, _ := c.Next(cur)
 
 	// then
 	assert.Equal(t, []Line{
-		{Kind: command.Info, Text: "cleared"},
-		{Kind: command.User, Text: "hi"},
+		{Kind: Info, Text: "cleared"},
+		{Kind: User, Text: "hi"},
 	}, lines)
 }
 
 func TestNextReturnsACopy(t *testing.T) {
 	// given
 	c, _ := newTestChat(t, &mockedAgentBackend{})
-	c.Print(command.Info, "one")
+	c.append(Info, "one")
 	lines, _ := c.Next(Cursor{})
 
 	// when
@@ -88,7 +87,7 @@ func TestTranscriptStripsTerminalControlSequences(t *testing.T) {
 			c, _ := newTestChat(t, &mockedAgentBackend{})
 
 			// when
-			c.Print(command.Reply, tc.input)
+			c.append(Reply, tc.input)
 
 			// then
 			assert.Equal(t, tc.expected, c.Transcript()[0].Text)
@@ -101,19 +100,19 @@ func TestToolCallStripsControlSequencesFromNamesAndKeys(t *testing.T) {
 	c, _ := newTestChat(t, &mockedAgentBackend{})
 
 	// when
-	c.ToolCalled("t\x1b]0;x\x07ool", map[string]any{"k\x1b]52;c;Zm9v\x07ey": "v"})
+	agentFeedback{c}.ToolCalled("t\x1b]0;x\x07ool", map[string]any{"k\x1b]52;c;Zm9v\x07ey": "v"})
 
 	// then
-	assert.Equal(t, `tool(key="v")`, c.PendingTool())
+	assert.Equal(t, `tool(key="v")`, c.Progress().Detail)
 }
 
 func TestToolResultDetailIsSanitized(t *testing.T) {
 	// given
 	c, _ := newTestChat(t, &mockedAgentBackend{})
-	c.ToolCalled("tool", nil)
+	agentFeedback{c}.ToolCalled("tool", nil)
 
 	// when
-	c.ToolReturned("tool", "ok\u009b", nil, 0)
+	agentFeedback{c}.ToolReturned("tool", "ok\u009b", nil, 0)
 
 	// then
 	assert.NotContains(t, c.Transcript()[0].Detail, "\u009b")

@@ -22,9 +22,7 @@ func (c *Chat) SetObserver(o Observer) {
 	c.mu.Unlock()
 }
 
-// Quit asks the observer to end the session. It implements [command.Quitter]
-// for /exit and does nothing when no observer is installed.
-func (c *Chat) Quit() {
+func (c *Chat) quit() {
 	if o := c.currentObserver(); o != nil {
 		o.Quit()
 	}

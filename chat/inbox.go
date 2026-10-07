@@ -74,14 +74,8 @@ func (b *inbox) running() bool {
 	return b.busy
 }
 
-func (b *inbox) waiting() bool {
+func (b *inbox) state() (busy, queued, cancelling bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return !b.items.Empty()
-}
-
-func (b *inbox) cancelPending() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.cancelling
+	return b.busy, !b.items.Empty(), b.cancelling
 }

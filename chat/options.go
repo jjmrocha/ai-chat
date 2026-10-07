@@ -35,7 +35,7 @@ func WithMCP(mgr command.MCPController) Option {
 }
 
 // WithSkills registers /skills, which lists the skills in coll.
-func WithSkills(coll command.SkillsController) Option {
+func WithSkills(coll command.SkillCatalog) Option {
 	return WithCommand(command.Skills(coll))
 }
 
@@ -43,7 +43,7 @@ func WithSkills(coll command.SkillsController) Option {
 // user turn, exactly as typed, so the agent can pick up the skill. /help and
 // completion show description.
 func WithSkillCommand(name, description string) Option {
-	return WithCommand(command.SkillCommand(name, description))
+	return WithCommand(skillCommand{name: name, description: description})
 }
 
 // WithDefaultCommands registers every built-in command that needs no external

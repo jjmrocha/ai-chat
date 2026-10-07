@@ -1,6 +1,6 @@
 # ai-chat
 
-Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmrocha/ai-toolkit) agent; get a headless chat core, a Bubble Tea TUI, a pluggable slash-command framework, and MCP server management.
+Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmrocha/ai-toolkit) agent; get a headless chat core, a Bubble Tea TUI, a pluggable slash-command framework, and an `/mcp` command to toggle MCP servers.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jjmrocha/ai-chat.svg)](https://pkg.go.dev/github.com/jjmrocha/ai-chat)
 [![Go 1.27+](https://img.shields.io/badge/go-1.27+-00ADD8)](https://go.dev/dl/)
@@ -9,7 +9,7 @@ Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmro
 - **Headless core.** `chat.Chat` runs the transcript and drives the agent with no terminal attached — drive it from a test, a script, or your own UI.
 - **Pluggable slash commands.** Ship the built-ins or implement `command.Command` and register your own. No forking.
 - **Swappable renderer.** `ui` is one consumer of the core, wired through a single `Observer`. The core stores undecorated text, so a replacement renderer owns every glyph and color.
-- **MCP built in.** Register MCP servers and toggle them at runtime with `/mcp`.
+- **MCP toggling.** Hand the core an ai-toolkit MCP manager and users switch its servers on and off at runtime with `/mcp`.
 
 ## Install
 
@@ -59,9 +59,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer ag.Close()
-	ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
 
 	core := chat.New("CHAT", ag, chat.WithDefaultCommands())
+	ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
 	if err := ui.Run(context.Background(), core); err != nil {
 		log.Fatal(err)
 	}
@@ -72,6 +72,11 @@ Real consumers of this library: [joe](https://github.com/jjmrocha/joe), a termin
 agent, and [warren](https://github.com/jjmrocha/warren), a financial analyst. Both wire a
 model, a toolbox and a skill collection into `chat.New` and hand the result to `ui.Run`,
 the way the snippet above does.
+
+Create the core before starting the session. To resume a saved conversation, pass it in
+`SessionConfig.Messages`: the agent reports the restored turns only to the feedback
+receiver installed when the session starts, so a core created afterwards never replays
+them into the transcript.
 
 ## Built-in commands
 
@@ -96,6 +101,10 @@ Each of the four defaults is also available individually as `WithModelCommand()`
 command under an existing name replaces it, so `/help` and `/exit` are overridable like
 any other.
 
+Input that starts with `/` but names no registered command, such as a file path, is sent
+to the agent as an ordinary message — so a mistyped command reaches the model rather than
+an error.
+
 ## Architecture
 
 ```
@@ -119,7 +128,7 @@ The core does strip terminal escape sequences and control characters (all but ne
 and tab) from every line, so model or tool output can never write to the user's
 clipboard, retitle the window or disguise a link, whichever front-end prints it.
 
-**Input is queued, never dropped.** `Submit` returns immediately and the work runs on the
+**Input is queued, not lost while busy.** `Submit` returns immediately and the work runs on the
 core's own goroutine. Anything sent while a turn is running is queued — the placeholder
 reads `(queued)` — and commands and turns share that one queue, so they run strictly in
 submission order and never overlap. `Esc` (`Cancel`) stops the running turn or command
@@ -170,7 +179,7 @@ type pingCmd struct{}
 func (pingCmd) Name() string { return "ping" }
 func (pingCmd) Help() string { return "Reply with pong" }
 func (pingCmd) Run(ctx command.Context, args string) {
-	ctx.Print(command.Info, "pong "+args)
+	ctx.Info("pong " + args)
 }
 
 core := chat.New("CHAT", ag, chat.WithCommand(pingCmd{}))
@@ -191,7 +200,7 @@ func (pingCmd) Args() string { return "[message]" }   // renders as: /ping [mess
 have to match exactly — a `pingCmd` registered by value whose `Args()` is declared on
 `*pingCmd` compiles fine and silently renders as a bare `/ping`.
 
-`command.Context` gives a command the agent (`Agent()`), the transcript (`Print`),
+`command.Context` gives a command the agent (`Agent()`), the transcript (`Info`, `Error`),
 session reset (`Clear`) and a cancellation context (`Context()`) — and nothing else. A
 command needing more than that is handed its own collaborator at construction, the way
 `/mcp` and `/skills` are, so no command can reach a capability it was not given.
@@ -215,12 +224,11 @@ mcpMng.Register(mcp.ClientConfig{
 })
 
 ag, _ := agent.New(agent.Config{}, client)
+core := chat.New("CHAT", ag, chat.WithMCP(mcpMng))
 ag.StartSession(agent.SessionConfig{
 	Prompt:  "You are a helpful assistant.",
 	ToolBox: toolBox,
 })
-
-core := chat.New("CHAT", ag, chat.WithMCP(mcpMng))
 ```
 
 Users then toggle servers at runtime: `/mcp on playwright`, `/mcp off playwright`, `/mcp`
@@ -237,19 +245,19 @@ front, as a catalog appended to the system prompt; the body loads on demand when
 calls `skill_load`.
 
 ```go
+toolBox := tools.NewToolBox()
 skillColl := skills.NewCollection()
 if err := skillColl.Add("./skills/stock-research"); err != nil {
 	log.Fatal(err)
 }
 
 ag, _ := agent.New(agent.Config{}, client)
+core := chat.New("CHAT", ag, chat.WithSkills(skillColl))
 ag.StartSession(agent.SessionConfig{
 	Prompt:  "You are a helpful assistant.",
 	ToolBox: toolBox,
 	Skills:  skillColl,
 })
-
-core := chat.New("CHAT", ag, chat.WithSkills(skillColl))
 ```
 
 `/skills` lists what is registered. Nothing is discovered automatically — a skill reaches
@@ -279,6 +287,7 @@ turn before reading the transcript — poll `Busy()`:
 
 ```go
 core := chat.New("CHAT", ag)
+ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
 core.Submit("hello")
 
 for core.Busy() {
@@ -300,12 +309,16 @@ still running and waits for it, so the agent is idle before you close it.
 Implement `chat.Observer`, hand it to the core, and read the transcript back on each
 notification. `Next(cursor)` copies only the lines you have not shown yet and returns the
 cursor to pass next time, which is what you want when the transcript grows all session.
+For a progress row, `Progress()` reports in one snapshot whether the core is idle,
+thinking, running a tool or command, or cancelling, and whether input is queued;
+`StatusText()` is the rendered model, effort and token status line.
 
 ```go
 type printer struct {
 	core   *chat.Chat
 	mu     sync.Mutex
 	cursor chat.Cursor
+	done   chan struct{}
 }
 
 func (p *printer) TranscriptChanged() {
@@ -318,13 +331,13 @@ func (p *printer) TranscriptChanged() {
 	p.cursor = next
 }
 
-func (p *printer) Quit() { os.Exit(0) }
+func (p *printer) Quit() { close(p.done) }
 
 func render(line chat.Line) string {
 	switch line.Kind {
-	case command.User:
+	case chat.User:
 		return "> " + line.Text
-	case command.Activity:
+	case chat.Activity:
 		// Text is the tool call; Detail is its result.
 		return "* " + line.Text + "\n    " + line.Detail
 	default:
@@ -335,11 +348,17 @@ func render(line chat.Line) string {
 core := chat.New("CHAT", ag)
 defer core.Close()
 core.SetContext(context.Background())
-core.SetObserver(&printer{core: core})
+p := &printer{core: core, done: make(chan struct{})}
+core.SetObserver(p)
+ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
+
+// … read input and call core.Submit until /exit …
+<-p.done
 ```
 
 Both `Observer` methods may be called from any goroutine, and from inside a `Chat` method,
-so neither should block. The cursor survives `/clear`: after a reset `Next` starts again
+so neither should block — `Quit` only closes a channel, and `main` returns once it is
+closed, so the deferred `Close` runs. The cursor survives `/clear`: after a reset `Next` starts again
 from the new transcript's first line, so nothing is skipped or printed twice.
 
 ## Packages

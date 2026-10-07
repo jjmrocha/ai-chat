@@ -48,11 +48,11 @@ func (c *Chat) statusLocked() StatusInfo {
 		return info
 	}
 
-	info.Name = sanitize(mi.ModelName)
+	info.Model = sanitize(mi.ModelName)
 	info.Provider = mi.Provider
 	info.Effort = mi.Effort
 	if mi.ModelContextSize > 0 {
-		info.CtxPct = float64(info.Tokens) * 100 / float64(mi.ModelContextSize)
+		info.ContextPercent = float64(info.Tokens) * 100 / float64(mi.ModelContextSize)
 	}
 	return info
 }
@@ -100,7 +100,7 @@ func (c *Chat) invalidateModel() {
 }
 
 func defaultStatusFormatter(info StatusInfo) string {
-	name := info.Name
+	name := info.Model
 	if name == "" {
 		name = "—"
 	}
@@ -111,7 +111,7 @@ func defaultStatusFormatter(info StatusInfo) string {
 	if info.Effort != llm.EffortOff && info.Effort != "" {
 		parts = append(parts, string(info.Effort))
 	}
-	parts = append(parts, fmt.Sprintf("ctx: %.0f%%", info.CtxPct))
+	parts = append(parts, fmt.Sprintf("ctx: %.0f%%", info.ContextPercent))
 	parts = append(parts, fmt.Sprintf("tokens: %s", formatTokens(info.Tokens)))
 	return strings.Join(parts, " · ")
 }

@@ -4,19 +4,18 @@ import (
 	"context"
 	"strings"
 	"unicode"
-
-	"github.com/jjmrocha/ai-chat/command"
 )
 
 // Submit queues text as the next input and returns immediately; the work runs
 // on its own goroutine.
 //
 // Text is trimmed, and empty input is ignored, as is anything submitted after
-// [Chat.Close]. Input beginning with "/" runs as a slash command, anything else
-// as an agent turn. A [command.Prompt] command is not run: its input is sent
-// to the agent as a turn, exactly as typed. Commands and turns share one queue
-// and run strictly in submission order, so a command never overlaps a turn or
-// another command.
+// [Chat.Close]. Input whose first word is a registered command, such as
+// "/model gpt", runs that command; anything else is an agent turn. Input that
+// starts with "/" but names no registered command, such as a file path, and
+// input for a command registered with [WithSkillCommand] are sent to the agent
+// exactly as typed. Commands and turns share one queue and run strictly in
+// submission order, so a command never overlaps a turn or another command.
 func (c *Chat) Submit(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -43,31 +42,13 @@ func (c *Chat) Submit(text string) {
 // Busy reports whether a turn or command is currently running.
 func (c *Chat) Busy() bool { return c.inbox.running() }
 
-// Queued reports whether input submitted during a running turn is still
-// waiting to run.
-func (c *Chat) Queued() bool { return c.inbox.waiting() }
-
 // Cancel stops the running turn or command and discards all queued input. A
 // turn ends with a "Cancelled." line unless its reply had already arrived; a
-// command stops once it notices its [command.Context] was cancelled. Cancel
+// command stops once it notices its context was cancelled. Cancel
 // does nothing when idle.
 func (c *Chat) Cancel() {
 	c.inbox.drop()
 	c.notify()
-}
-
-// Cancelling reports whether [Chat.Cancel] was called and the running turn or
-// command has not yet returned. A front-end can show it in place of progress
-// detail.
-func (c *Chat) Cancelling() bool { return c.inbox.cancelPending() }
-
-// PendingCommand returns the slash command in flight, as it was typed, or an
-// empty string when no command is running. A front-end can show it as progress
-// detail, to distinguish waiting on a command from waiting on the model.
-func (c *Chat) PendingCommand() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.pendingCommand
 }
 
 func (c *Chat) process(ctx context.Context, text string) {
@@ -94,12 +75,7 @@ func (c *Chat) runCommand(ctx context.Context, input string) {
 	name, args := splitCommand(strings.TrimPrefix(input, "/"))
 
 	cmd, ok := c.commands.Get(name)
-	if !ok {
-		c.append(command.Error, "Error: unknown command /"+name)
-		return
-	}
-
-	if p, ok := cmd.(command.Prompt); ok && p.Prompt() {
+	if _, skill := cmd.(skillCommand); !ok || skill {
 		c.turn(ctx, input)
 		return
 	}
@@ -107,7 +83,7 @@ func (c *Chat) runCommand(ctx context.Context, input string) {
 	c.setPendingCommand(input)
 	defer c.setPendingCommand("")
 
-	cmd.Run(c, strings.TrimSpace(args))
+	cmd.Run(commandContext{c}, strings.TrimSpace(args))
 }
 
 func splitCommand(s string) (name, args string) {

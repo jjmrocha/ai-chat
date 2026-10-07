@@ -9,23 +9,48 @@ import (
 )
 
 var (
-	_ command.Context         = (*Chat)(nil)
-	_ command.AgentController = (*Chat)(nil)
+	_ command.Context         = commandContext{}
+	_ command.AgentController = commandContext{}
+	_ command.Quitter         = commandContext{}
 )
 
-// Print appends a line to the transcript and notifies the observer. It
-// implements [command.Context] so commands can write output; text should carry
-// no decoration, since the front-end styles it by kind.
-func (c *Chat) Print(kind command.Kind, text string) { c.append(kind, text) }
+type commandContext struct{ c *Chat }
 
-// Agent returns the controller commands use to reach the agent. It implements
-// [command.Context].
-func (c *Chat) Agent() command.AgentController { return c }
+func (cc commandContext) Info(text string) { cc.c.append(Info, text) }
 
-// Clear resets the agent session and empties the transcript, discarding the
-// last turn's metadata. It implements [command.Context] for /clear and returns
-// the agent's error without clearing anything if the reset fails.
-func (c *Chat) Clear() error {
+func (cc commandContext) Error(text string) { cc.c.append(Error, text) }
+
+func (cc commandContext) Agent() command.AgentController { return cc }
+
+func (cc commandContext) Clear() error { return cc.c.clear() }
+
+func (cc commandContext) Context() context.Context { return cc.c.workContext() }
+
+func (cc commandContext) Quit() { cc.c.quit() }
+
+func (cc commandContext) ChangeModel(name string) error {
+	err := cc.c.agent.ChangeModel(name)
+	cc.c.invalidateModel()
+	return err
+}
+
+func (cc commandContext) ChangeEffort(e llm.Effort) error {
+	err := cc.c.agent.ChangeEffort(e)
+	cc.c.invalidateModel()
+	return err
+}
+
+func (cc commandContext) AvailableModels() []string { return cc.c.agent.AvailableModels() }
+
+func (cc commandContext) Compact() {
+	ctx := cc.c.workContext()
+	cc.c.agent.CompactContext(ctx)
+	if cancelledByUser(ctx) {
+		cc.c.append(Info, "Cancelled.")
+	}
+}
+
+func (c *Chat) clear() error {
 	if err := c.agent.ResetSession(); err != nil {
 		return err
 	}
@@ -37,37 +62,7 @@ func (c *Chat) Clear() error {
 	return nil
 }
 
-// ChangeModel switches the agent to the named model, which must be one of
-// [Chat.AvailableModels]. It implements [command.AgentController] for /model
-// and returns the agent's error unchanged on failure.
-func (c *Chat) ChangeModel(name string) error {
-	err := c.agent.ChangeModel(name)
-	c.invalidateModel()
-	return err
-}
-
-// ChangeEffort switches the agent's reasoning effort. It implements
-// [command.AgentController] for /effort and returns the agent's error for an
-// unsupported level.
-func (c *Chat) ChangeEffort(e llm.Effort) error {
-	err := c.agent.ChangeEffort(e)
-	c.invalidateModel()
-	return err
-}
-
-// AvailableModels returns the models the agent can switch to. It implements
-// [command.AgentController] for /model.
-func (c *Chat) AvailableModels() []string { return c.agent.AvailableModels() }
-
-// Compact forces context compaction under the running command's context, so
-// [Chat.Cancel] interrupts it. It implements [command.AgentController] for
-// /compact; the agent reports the outcome through the feedback methods.
-func (c *Chat) Compact() { c.agent.CompactContext(c.Context()) }
-
-// Context returns the context of the running turn or command, which
-// [Chat.Cancel] and [Chat.Close] cancel, or the session's context when nothing
-// is running. It implements [command.Context].
-func (c *Chat) Context() context.Context {
+func (c *Chat) workContext() context.Context {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.workCtx != nil {

@@ -20,7 +20,7 @@ func (blockingCmd) Help() string { return "Block until cancelled" }
 func (b blockingCmd) Run(ctx command.Context, _ string) {
 	b.started <- true
 	<-ctx.Context().Done()
-	ctx.Print(command.Error, "Error: "+ctx.Context().Err().Error())
+	ctx.Error("Error: " + ctx.Context().Err().Error())
 }
 
 func TestCancelRightAfterSubmitStopsTheTurn(t *testing.T) {
@@ -60,7 +60,7 @@ func TestCancelStopsTheRunningCommand(t *testing.T) {
 	waitIdle(t, c)
 	lines := c.Transcript()
 	require.NotEmpty(t, lines)
-	assert.Equal(t, command.Error, lines[len(lines)-1].Kind)
+	assert.Equal(t, Error, lines[len(lines)-1].Kind)
 }
 
 func TestCompactUsesTheCommandContext(t *testing.T) {
@@ -81,6 +81,47 @@ func TestCompactUsesTheCommandContext(t *testing.T) {
 
 	// then
 	waitIdle(t, c)
+}
+
+func TestCancelledCompactReportsCancelledInsteadOfFailure(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	var c *Chat
+	backend := &mockedAgentBackend{
+		compactContextFunc: func(ctx context.Context) {
+			started <- true
+			<-ctx.Done()
+			agentFeedback{c}.ContextCompactionFailed()
+		},
+	}
+	c, _ = newTestChat(t, backend, WithCompactCommand())
+	c.Submit("/compact")
+	<-started
+
+	// when
+	c.Cancel()
+
+	// then
+	waitIdle(t, c)
+	assert.Equal(t, []Line{{Kind: Info, Text: "Cancelled."}}, c.Transcript())
+}
+
+func TestFailedCompactIsReported(t *testing.T) {
+	// given
+	var c *Chat
+	backend := &mockedAgentBackend{
+		compactContextFunc: func(context.Context) { agentFeedback{c}.ContextCompactionFailed() },
+	}
+	c, _ = newTestChat(t, backend, WithCompactCommand())
+
+	// when
+	c.Submit("/compact")
+
+	// then
+	waitIdle(t, c)
+	assert.Equal(t, []Line{
+		{Kind: Error, Text: "Context compaction failed; will retry after the next turn."},
+	}, c.Transcript())
 }
 
 func TestCloseCancelsWorkAndWaitsForIt(t *testing.T) {
@@ -147,7 +188,7 @@ func TestCloseSilencesTheObserver(t *testing.T) {
 	c.Close()
 
 	// when
-	c.Print(command.Info, "late")
+	c.append(Info, "late")
 
 	// then
 	obs.mu.Lock()

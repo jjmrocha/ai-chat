@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/command"
 )
 
@@ -55,7 +56,7 @@ func TestPlaceholderReflectsQueueState(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// given
 			queued := tc.queued
-			m := sized(t, &mockedChatCore{queuedFunc: func() bool { return queued }}, 80, 24)
+			m := sized(t, &mockedChatCore{progressFunc: func() chat.Progress { return chat.Progress{Queued: queued} }}, 80, 24)
 
 			// when
 			result := m.placeholder()
@@ -68,7 +69,9 @@ func TestPlaceholderReflectsQueueState(t *testing.T) {
 
 func TestThinkingLineShowsThePendingTool(t *testing.T) {
 	// given
-	core := &mockedChatCore{pendingFunc: func() string { return "read(a.go)" }}
+	core := &mockedChatCore{progressFunc: func() chat.Progress {
+		return chat.Progress{Stage: chat.RunningTool, Detail: "read(a.go)"}
+	}}
 	m := sized(t, core, 80, 24)
 	core.busy.Store(true)
 	next, _ := m.Update(refreshMsg{})
@@ -83,7 +86,9 @@ func TestThinkingLineShowsThePendingTool(t *testing.T) {
 
 func TestThinkingLineShowsTheRunningCommand(t *testing.T) {
 	// given
-	core := &mockedChatCore{pendingCommandFunc: func() string { return "/mcp on yfinance-mcp" }}
+	core := &mockedChatCore{progressFunc: func() chat.Progress {
+		return chat.Progress{Stage: chat.RunningCommand, Detail: "/mcp on yfinance-mcp"}
+	}}
 	m := sized(t, core, 80, 24)
 	core.busy.Store(true)
 	next, _ := m.Update(refreshMsg{})
@@ -94,24 +99,6 @@ func TestThinkingLineShowsTheRunningCommand(t *testing.T) {
 	// then
 	assert.Contains(t, result, "Waiting for /mcp on yfinance-mcp")
 	assert.NotContains(t, result, "Thinking for")
-}
-
-func TestThinkingLineShowsThePendingToolOverTheRunningCommand(t *testing.T) {
-	// given
-	core := &mockedChatCore{
-		pendingFunc:        func() string { return "read(a.go)" },
-		pendingCommandFunc: func() string { return "/mcp on yfinance-mcp" },
-	}
-	m := sized(t, core, 80, 24)
-	core.busy.Store(true)
-	next, _ := m.Update(refreshMsg{})
-
-	// when
-	result := next.(model).thinkingLine()
-
-	// then
-	assert.Contains(t, result, "read(a.go)")
-	assert.NotContains(t, result, "Waiting for")
 }
 
 func TestViewIsEmptyWhileQuitting(t *testing.T) {
@@ -126,12 +113,11 @@ func TestViewIsEmptyWhileQuitting(t *testing.T) {
 	assert.Empty(t, strings.TrimSpace(result.Content))
 }
 
-func TestThinkingLineShowsCancellingOverThePendingTool(t *testing.T) {
+func TestThinkingLineShowsCancelling(t *testing.T) {
 	// given
-	core := &mockedChatCore{
-		pendingFunc:    func() string { return "read(a.go)" },
-		cancellingFunc: func() bool { return true },
-	}
+	core := &mockedChatCore{progressFunc: func() chat.Progress {
+		return chat.Progress{Stage: chat.Cancelling}
+	}}
 	m := sized(t, core, 80, 24)
 	core.busy.Store(true)
 	next, _ := m.Update(refreshMsg{})
@@ -141,7 +127,6 @@ func TestThinkingLineShowsCancellingOverThePendingTool(t *testing.T) {
 
 	// then
 	assert.Contains(t, result, "Cancelling…")
-	assert.NotContains(t, result, "read(a.go)")
 	assert.NotContains(t, result, "Thinking for")
 }
 

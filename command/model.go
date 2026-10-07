@@ -29,5 +29,5 @@ func (modelCmd) Run(ctx Context, args string) {
 		printErr(ctx, err)
 		return
 	}
-	ctx.Print(Info, "Switched to: "+args)
+	ctx.Info("Switched to: " + args)
 }

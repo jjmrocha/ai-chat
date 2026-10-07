@@ -16,12 +16,9 @@ type chatCore interface {
 	Next(cur chat.Cursor) ([]chat.Line, chat.Cursor)
 	Busy() bool
 	StatusText() string
-	Queued() bool
-	PendingTool() string
-	PendingCommand() string
+	Progress() chat.Progress
 	Submit(text string)
 	Cancel()
-	Cancelling() bool
 	Commands() []command.Command
 }
 

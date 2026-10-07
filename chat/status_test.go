@@ -16,11 +16,11 @@ func TestDefaultStatusFormatter(t *testing.T) {
 	t.Run("full info", func(t *testing.T) {
 		// given
 		info := StatusInfo{
-			Name:     "gpt-4",
-			Provider: "openai",
-			Effort:   llm.EffortMedium,
-			CtxPct:   12.5,
-			Tokens:   8400,
+			Model:          "gpt-4",
+			Provider:       "openai",
+			Effort:         llm.EffortMedium,
+			ContextPercent: 12.5,
+			Tokens:         8400,
 		}
 
 		// when
@@ -44,10 +44,10 @@ func TestDefaultStatusFormatter(t *testing.T) {
 	t.Run("effort off omitted", func(t *testing.T) {
 		// given
 		info := StatusInfo{
-			Name:   "claude-3",
-			Effort: llm.EffortOff,
-			CtxPct: 50,
-			Tokens: 500,
+			Model:          "claude-3",
+			Effort:         llm.EffortOff,
+			ContextPercent: 50,
+			Tokens:         500,
 		}
 
 		// when
@@ -60,7 +60,7 @@ func TestDefaultStatusFormatter(t *testing.T) {
 	t.Run("unknown provider", func(t *testing.T) {
 		// given
 		info := StatusInfo{
-			Name:   "my-model",
+			Model:  "my-model",
 			Effort: llm.EffortLow,
 		}
 
@@ -85,17 +85,17 @@ func TestStatusUsesModelInfo(t *testing.T) {
 		},
 	}
 	c, _ := newTestChat(t, backend)
-	c.TokensUsed(250)
+	agentFeedback{c}.TokensUsed(250)
 
 	// when
-	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Name != "" })
+	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Model != "" })
 
 	// then
-	assert.Equal(t, "m1", result.Name)
+	assert.Equal(t, "m1", result.Model)
 	assert.Equal(t, llm.ProviderOllama, result.Provider)
 	assert.Equal(t, llm.EffortLow, result.Effort)
 	assert.Equal(t, 250, result.Tokens)
-	assert.InDelta(t, 25.0, result.CtxPct, 0.001)
+	assert.InDelta(t, 25.0, result.ContextPercent, 0.001)
 }
 
 func TestStatusReturnsWithoutWaitingForTheLookup(t *testing.T) {
@@ -114,7 +114,7 @@ func TestStatusReturnsWithoutWaitingForTheLookup(t *testing.T) {
 	result := c.Status()
 
 	// then
-	assert.Empty(t, result.Name)
+	assert.Empty(t, result.Model)
 }
 
 func TestStatusNotifiesTheObserverWhenTheLookupLands(t *testing.T) {
@@ -127,7 +127,7 @@ func TestStatusNotifiesTheObserverWhenTheLookupLands(t *testing.T) {
 	c, obs := newTestChat(t, backend)
 
 	// when
-	waitStatus(t, c, func(s StatusInfo) bool { return s.Name == "m1" })
+	waitStatus(t, c, func(s StatusInfo) bool { return s.Model == "m1" })
 
 	// then
 	obs.mu.Lock()
@@ -143,7 +143,7 @@ func TestStatusLooksTheModelUpOnce(t *testing.T) {
 		},
 	}
 	c, _ := newTestChat(t, backend)
-	waitStatus(t, c, func(s StatusInfo) bool { return s.Name == "m1" })
+	waitStatus(t, c, func(s StatusInfo) bool { return s.Model == "m1" })
 
 	// when
 	for range 10 {
@@ -159,8 +159,8 @@ func TestStatusLooksTheModelUpAgainAfterASwitch(t *testing.T) {
 		name   string
 		change func(*Chat)
 	}{
-		{name: "changing model", change: func(c *Chat) { _ = c.ChangeModel("m2") }},
-		{name: "changing effort", change: func(c *Chat) { _ = c.ChangeEffort(llm.EffortMax) }},
+		{name: "changing model", change: func(c *Chat) { _ = commandContext{c}.ChangeModel("m2") }},
+		{name: "changing effort", change: func(c *Chat) { _ = commandContext{c}.ChangeEffort(llm.EffortMax) }},
 	}
 
 	for _, tc := range tests {
@@ -172,7 +172,7 @@ func TestStatusLooksTheModelUpAgainAfterASwitch(t *testing.T) {
 				},
 			}
 			c, _ := newTestChat(t, backend)
-			waitStatus(t, c, func(s StatusInfo) bool { return s.Name == "m1" })
+			waitStatus(t, c, func(s StatusInfo) bool { return s.Model == "m1" })
 
 			// when
 			tc.change(c)
@@ -196,17 +196,17 @@ func TestStatusDiscardsALookupOvertakenByASwitch(t *testing.T) {
 		},
 		modelInfoFunc: func(context.Context) *agent.ModelInfo {
 			name := current
-			switched.Do(func() { _ = c.ChangeModel("m2") })
+			switched.Do(func() { _ = commandContext{c}.ChangeModel("m2") })
 			return &agent.ModelInfo{ModelName: name}
 		},
 	}
 	c, _ = newTestChat(t, backend)
 
 	// when
-	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Name == "m2" })
+	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Model == "m2" })
 
 	// then
-	assert.Equal(t, "m2", result.Name)
+	assert.Equal(t, "m2", result.Model)
 }
 
 func TestStatusRetriesAFailedLookupOnlyAfterATurn(t *testing.T) {
@@ -236,7 +236,7 @@ func TestStatusDoesNotLoopWhenTheModelIsUnavailable(t *testing.T) {
 	backend := &mockedAgentBackend{}
 	c, _ := newTestChat(t, backend)
 	backend.modelInfoFunc = func(context.Context) *agent.ModelInfo {
-		c.ModelInfoUnavailable()
+		agentFeedback{c}.ModelInfoUnavailable()
 		return nil
 	}
 	c.SetObserver(&renderingObserver{core: c})
@@ -255,12 +255,12 @@ func TestModelInfoUnavailableIsReportedOncePerModel(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
 	c, _ := newTestChat(t, backend)
-	c.ModelInfoUnavailable()
+	agentFeedback{c}.ModelInfoUnavailable()
 
 	// when
-	c.ModelInfoUnavailable()
-	_ = c.ChangeModel("m2")
-	c.ModelInfoUnavailable()
+	agentFeedback{c}.ModelInfoUnavailable()
+	_ = commandContext{c}.ChangeModel("m2")
+	agentFeedback{c}.ModelInfoUnavailable()
 
 	// then
 	assert.Len(t, c.Transcript(), 2)
@@ -292,7 +292,7 @@ func TestStatusDoesNotQueryTheAgentWhileATurnRuns(t *testing.T) {
 
 	// then
 	assert.Zero(t, hitsDuringTurn)
-	waitStatus(t, c, func(s StatusInfo) bool { return s.Name == "m1" })
+	waitStatus(t, c, func(s StatusInfo) bool { return s.Model == "m1" })
 }
 
 func TestStatusStripsControlSequencesFromTheModelName(t *testing.T) {
@@ -305,8 +305,8 @@ func TestStatusStripsControlSequencesFromTheModelName(t *testing.T) {
 	c, _ := newTestChat(t, backend)
 
 	// when
-	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Name != "" })
+	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Model != "" })
 
 	// then
-	assert.Equal(t, "mone", result.Name)
+	assert.Equal(t, "mone", result.Model)
 }

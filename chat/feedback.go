@@ -4,34 +4,73 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
 	"github.com/jjmrocha/ai-toolkit/llm"
 )
 
-var _ agent.Feedback = (*Chat)(nil)
+var _ agent.Feedback = agentFeedback{}
 
-// PendingTool returns a description of the tool call in flight, or an empty
-// string when none is running. A front-end can show it as progress detail.
-func (c *Chat) PendingTool() string {
+type agentFeedback struct{ c *Chat }
+
+func (f agentFeedback) ToolCalled(name string, args map[string]any) {
+	f.c.mutate(func() { f.c.pendingTool = sanitize(formatToolCall(name, args)) })
+}
+
+func (f agentFeedback) ToolReturned(_ string, result string, err error, elapsed time.Duration) {
+	f.c.closeToolCall(formatToolResult(result, err, elapsed))
+}
+
+func (f agentFeedback) InterimTextReceived(content string) {
+	text := sanitize(content)
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+
+	f.c.append(Reply, text)
+}
+
+func (f agentFeedback) TokensUsed(totalTokens int) { f.c.setTokens(totalTokens) }
+
+func (f agentFeedback) ContextCompacted() { f.c.append(Info, "Context compacted.") }
+
+func (f agentFeedback) ContextCompactionFailed() {
+	if cancelledByUser(f.c.workContext()) {
+		return
+	}
+	f.c.append(Error, "Context compaction failed; will retry after the next turn.")
+}
+
+func (f agentFeedback) ModelInfoUnavailable() {
+	c := f.c
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.pendingTool
+	reported := c.model.reported
+	c.model.reported = true
+	c.mu.Unlock()
+
+	if !reported {
+		c.append(Error, "Model info unavailable; automatic context compaction is disabled.")
+	}
 }
 
-// ToolCalled records that the agent started a tool call, making it visible
-// through [Chat.PendingTool]. It implements agent.Feedback and is called by the
-// agent, not by your code.
-func (c *Chat) ToolCalled(name string, args map[string]any) {
-	c.mutate(func() { c.pendingTool = sanitize(formatToolCall(name, args)) })
+func (f agentFeedback) SessionReset() {}
+
+func (f agentFeedback) SessionStarted() {}
+
+func (f agentFeedback) SessionResumed(sessionID string) {
+	c := f.c
+	tokens := 0
+	for _, msg := range c.agent.Messages() {
+		if m, ok := msg.(llm.AssistantMessage); ok {
+			tokens = m.Stats.TotalTokens
+		}
+		c.replay(msg)
+	}
+
+	c.setTokens(tokens)
+	c.append(Info, "Session "+sessionID+" resumed.")
 }
 
-// ToolReturned records the outcome of the tool call in flight, appending it as
-// one [command.Activity] line whose Text is the call and whose Detail is the
-// result. It implements agent.Feedback and is called by the agent.
-func (c *Chat) ToolReturned(_ string, result string, err error, elapsed time.Duration) {
-	c.closeToolCall(formatToolResult(result, err, elapsed))
-}
+func (f agentFeedback) SessionClosed() {}
 
 func (c *Chat) closeToolCall(response string) {
 	c.mu.Lock()
@@ -43,86 +82,20 @@ func (c *Chat) closeToolCall(response string) {
 		return
 	}
 
-	c.appendLine(Line{Kind: command.Activity, Text: request, Detail: response})
+	c.appendLine(Line{Kind: Activity, Text: request, Detail: response})
 }
 
-// InterimTextReceived appends the text a model returned alongside its tool
-// calls as a [command.Reply] line. Text that is blank once sanitized is
-// ignored. It implements agent.Feedback and is called by the agent.
-func (c *Chat) InterimTextReceived(content string) {
-	text := sanitize(content)
-	if strings.TrimSpace(text) == "" {
-		return
-	}
-
-	c.append(command.Reply, text)
-}
-
-// TokensUsed updates the token count shown in the status bar after each
-// intermediate model response. It implements agent.Feedback and is called by
-// the agent.
-func (c *Chat) TokensUsed(totalTokens int) {
+func (c *Chat) setTokens(totalTokens int) {
 	c.mutate(func() { c.lastMeta.TotalTokens = totalTokens })
-}
-
-// ContextCompacted notes a successful context compaction in the transcript. It
-// implements agent.Feedback and is called by the agent.
-func (c *Chat) ContextCompacted() { c.append(command.Info, "Context compacted.") }
-
-// ContextCompactionFailed notes a failed context compaction in the transcript.
-// It implements agent.Feedback and is called by the agent.
-func (c *Chat) ContextCompactionFailed() {
-	c.append(command.Error, "Context compaction failed; will retry after the next turn.")
-}
-
-// ModelInfoUnavailable notes that the model's limits could not be read, which
-// disables automatic compaction. The note is written once per model, however
-// often the agent reports it. It implements agent.Feedback and is called by the
-// agent.
-func (c *Chat) ModelInfoUnavailable() {
-	c.mu.Lock()
-	reported := c.model.reported
-	c.model.reported = true
-	c.mu.Unlock()
-
-	if !reported {
-		c.append(command.Error, "Model info unavailable; automatic context compaction is disabled.")
-	}
-}
-
-// SessionReset implements agent.Feedback. The core needs no action here.
-func (c *Chat) SessionReset() {}
-
-// SessionStarted implements agent.Feedback. The core needs no action here.
-func (c *Chat) SessionStarted() {}
-
-// SessionResumed replays the restored conversation, user inputs and final
-// replies only, shows the token count of its last model response in the status
-// bar, then reports the session's id as a [command.Info] line. It implements
-// agent.Feedback and is called by the agent.
-func (c *Chat) SessionResumed(sessionID string) {
-	tokens := 0
-	for _, msg := range c.agent.Messages() {
-		if m, ok := msg.(llm.AssistantMessage); ok {
-			tokens = m.Stats.TotalTokens
-		}
-		c.replay(msg)
-	}
-
-	c.TokensUsed(tokens)
-	c.append(command.Info, "Session "+sessionID+" resumed.")
 }
 
 func (c *Chat) replay(msg llm.Message) {
 	switch m := msg.(type) {
 	case llm.UserMessage:
-		c.append(command.User, m.Content)
+		c.append(User, m.Content)
 	case llm.AssistantMessage:
 		if len(m.ToolCalls) == 0 {
-			c.append(command.Reply, m.Content)
+			c.append(Reply, m.Content)
 		}
 	}
 }
-
-// SessionClosed implements agent.Feedback. The core needs no action here.
-func (c *Chat) SessionClosed() {}

@@ -18,15 +18,12 @@ func sized(t *testing.T, core chatCore, w, h int) model {
 }
 
 type mockedChatCore struct {
-	nameFunc           func() string
-	nextFunc           func(cur chat.Cursor) ([]chat.Line, chat.Cursor)
-	statusTextFunc     func() string
-	queuedFunc         func() bool
-	pendingFunc        func() string
-	pendingCommandFunc func() string
-	submitFunc         func(text string)
-	cancellingFunc     func() bool
-	commandsFunc       func() []command.Command
+	nameFunc       func() string
+	nextFunc       func(cur chat.Cursor) ([]chat.Line, chat.Cursor)
+	statusTextFunc func() string
+	progressFunc   func() chat.Progress
+	submitFunc     func(text string)
+	commandsFunc   func() []command.Command
 
 	busy      atomic.Bool
 	cancels   atomic.Int32
@@ -57,25 +54,11 @@ func (m *mockedChatCore) StatusText() string {
 	return m.statusTextFunc()
 }
 
-func (m *mockedChatCore) Queued() bool {
-	if m.queuedFunc == nil {
-		return false
+func (m *mockedChatCore) Progress() chat.Progress {
+	if m.progressFunc == nil {
+		return chat.Progress{}
 	}
-	return m.queuedFunc()
-}
-
-func (m *mockedChatCore) PendingTool() string {
-	if m.pendingFunc == nil {
-		return ""
-	}
-	return m.pendingFunc()
-}
-
-func (m *mockedChatCore) PendingCommand() string {
-	if m.pendingCommandFunc == nil {
-		return ""
-	}
-	return m.pendingCommandFunc()
+	return m.progressFunc()
 }
 
 func (m *mockedChatCore) Submit(text string) {
@@ -85,13 +68,6 @@ func (m *mockedChatCore) Submit(text string) {
 }
 
 func (m *mockedChatCore) Cancel() { m.cancels.Add(1) }
-
-func (m *mockedChatCore) Cancelling() bool {
-	if m.cancellingFunc == nil {
-		return false
-	}
-	return m.cancellingFunc()
-}
 
 func (m *mockedChatCore) Commands() []command.Command {
 	if m.commandsFunc == nil {

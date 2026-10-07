@@ -34,12 +34,12 @@ var effortLevels = fn.Map(
 
 func (effortCmd) Run(ctx Context, args string) {
 	if args == "" {
-		ctx.Print(Info, listText("Effort levels", effortLevels))
+		ctx.Info(listText("Effort levels", effortLevels))
 		return
 	}
 	if err := ctx.Agent().ChangeEffort(llm.Effort(args)); err != nil {
-		ctx.Print(Error, "Effort must be: "+strings.Join(effortLevels, ", "))
+		ctx.Error("Effort must be: " + strings.Join(effortLevels, ", "))
 		return
 	}
-	ctx.Print(Info, "Effort: "+args)
+	ctx.Info("Effort: " + args)
 }

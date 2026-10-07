@@ -25,12 +25,6 @@ type agentBackend interface {
 // Chat is the headless conversation core. Create one with [New] and hand it to
 // a front-end such as ui.Run.
 //
-// Chat implements [command.Context] and [command.AgentController], so it is the
-// value slash commands receive; it also implements agent.Feedback, so the
-// ai-toolkit agent reports tool calls and compaction through it. The methods
-// serving those two roles are documented as such and are not meant to be called
-// directly.
-//
 // All methods are safe for concurrent use.
 type Chat struct {
 	name  string
@@ -65,11 +59,13 @@ type Chat struct {
 // replace an earlier one by registering the same name.
 //
 // New registers the Chat as ag's feedback receiver, so a given agent should
-// back only one Chat.
+// back only one Chat. Start the agent's session after New: the agent reports a
+// resumed conversation only to the feedback receiver installed when the
+// session starts, and only then does the Chat replay it into the transcript.
 func New(name string, ag *agent.Agent, opts ...Option) *Chat {
 	c := newChat(name, opts...)
 	c.agent = ag
-	ag.SetFeedback(c)
+	ag.SetFeedback(agentFeedback{c})
 	return c
 }
 
@@ -83,7 +79,7 @@ func newChat(name string, opts ...Option) *Chat {
 		inbox:        newInbox(),
 	}
 	c.register(command.Help(c))
-	c.register(command.Exit(c))
+	c.register(command.Exit(commandContext{c}))
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -139,12 +135,4 @@ func (c *Chat) Name() string { return c.name }
 // [command.Registry] so /help can list them.
 func (c *Chat) Commands() []command.Command {
 	return c.commands.ToList()
-}
-
-// LastMetadata returns the metadata of the most recent successful turn. It is
-// the zero value before the first turn completes and after [Chat.Clear].
-func (c *Chat) LastMetadata() agent.Metadata {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.lastMeta
 }

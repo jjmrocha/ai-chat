@@ -34,9 +34,13 @@ type Context interface {
 	// Agent returns the controller for model, effort and compaction.
 	Agent() AgentController
 
-	// Print appends a line to the transcript. Pass undecorated text; the
-	// front-end styles it by kind.
-	Print(kind Kind, text string)
+	// Info appends command output to the transcript. Pass undecorated text;
+	// the front-end styles it.
+	Info(text string)
+
+	// Error appends a failure message to the transcript. Pass undecorated
+	// text; the front-end styles it.
+	Error(text string)
 
 	// Clear resets the conversation, returning the agent's error if the
 	// session could not be reset.
@@ -78,14 +82,4 @@ type Argumented interface {
 	// Args is the argument spec shown in /help, such as "[on|off] [name]".
 	// Return an empty string to render the name alone.
 	Args() string
-}
-
-// Prompt is the optional half of [Command] for commands that are not run but
-// sent to the agent: when Prompt returns true, the input is submitted as a user
-// turn exactly as typed, slash and all, and Run is never called.
-//
-// Like [Argumented], it is detected by type assertion on the registered value.
-type Prompt interface {
-	// Prompt reports whether the command's input is sent to the agent.
-	Prompt() bool
 }

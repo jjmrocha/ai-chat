@@ -13,12 +13,12 @@ func listText(header string, items []string) string {
 
 func printList(ctx Context, header, empty string, items []string) {
 	if len(items) == 0 {
-		ctx.Print(Info, empty)
+		ctx.Info(empty)
 		return
 	}
-	ctx.Print(Info, listText(header, items))
+	ctx.Info(listText(header, items))
 }
 
 func printErr(ctx Context, err error) {
-	ctx.Print(Error, "Error: "+err.Error())
+	ctx.Error("Error: " + err.Error())
 }

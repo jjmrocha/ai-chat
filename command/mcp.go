@@ -56,7 +56,7 @@ func (c mcpCmd) Run(ctx Context, args string) {
 	case "on", "off":
 		c.toggle(ctx, action, name)
 	default:
-		ctx.Print(Error, "Usage: /mcp [on|off] [name]")
+		ctx.Error("Usage: /mcp [on|off] [name]")
 	}
 }
 
@@ -74,7 +74,7 @@ func (c mcpCmd) list(ctx Context) {
 func (c mcpCmd) toggle(ctx Context, action, name string) {
 	target, ok := c.resolveName(name)
 	if !ok {
-		ctx.Print(Error, "Specify an MCP name: /mcp "+action+" <name>")
+		ctx.Error("Specify an MCP name: /mcp " + action + " <name>")
 		return
 	}
 
@@ -83,7 +83,7 @@ func (c mcpCmd) toggle(ctx Context, action, name string) {
 		printErr(ctx, err)
 		return
 	}
-	ctx.Print(Info, "MCP "+target+" "+verb+".")
+	ctx.Info("MCP " + target + " " + verb + ".")
 }
 
 func (c mcpCmd) switchServer(ctx context.Context, on bool, name string) (verb string, err error) {

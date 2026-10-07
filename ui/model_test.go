@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/spinner"
@@ -120,6 +121,20 @@ func TestShiftEnterInsertsANewlineInsteadOfSubmitting(t *testing.T) {
 	// then
 	assert.Empty(t, submitted)
 	assert.Equal(t, "first\n", next.(model).input.Value())
+}
+
+func TestShiftEnterInsertsANewlinePastTheVisibleHeight(t *testing.T) {
+	// given
+	m := sized(t, &mockedChatCore{}, 80, 24)
+	m.setInput(strings.Repeat("line\n", maxInputLines-1) + "line")
+
+	// when
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
+
+	// then
+	result := next.(model).input
+	assert.Equal(t, maxInputLines+1, result.LineCount())
+	assert.Equal(t, maxInputLines, result.Height())
 }
 
 func TestCtrlCQuits(t *testing.T) {

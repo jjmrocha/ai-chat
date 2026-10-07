@@ -34,7 +34,7 @@ func TestSubmitIgnoresBlankInput(t *testing.T) {
 
 			// then
 			assert.Empty(t, backend.inputs())
-			assert.Zero(t, c.TranscriptLen())
+			assert.Zero(t, len(c.Transcript()))
 			assert.False(t, c.Busy())
 		})
 	}
@@ -65,7 +65,7 @@ func TestTurnAppendsUserLineWithoutGlyph(t *testing.T) {
 	// then
 	lines := c.Transcript()
 	require.NotEmpty(t, lines)
-	assert.Equal(t, command.User, lines[0].Kind)
+	assert.Equal(t, User, lines[0].Kind)
 	assert.Equal(t, "hi", lines[0].Text)
 }
 
@@ -85,7 +85,7 @@ func TestTurnReportsAgentError(t *testing.T) {
 	// then
 	lines := c.Transcript()
 	require.Len(t, lines, 2)
-	assert.Equal(t, command.Error, lines[1].Kind)
+	assert.Equal(t, Error, lines[1].Kind)
 	assert.Equal(t, "Error: upstream down", lines[1].Text)
 }
 
@@ -105,25 +105,38 @@ func TestTurnReportsMissingResponse(t *testing.T) {
 	// then
 	lines := c.Transcript()
 	require.Len(t, lines, 2)
-	assert.Equal(t, command.Error, lines[1].Kind)
+	assert.Equal(t, Error, lines[1].Kind)
 	assert.Equal(t, "No response received.", lines[1].Text)
 }
 
-func TestUnknownCommandReportsAndStaysUsable(t *testing.T) {
-	// given
-	backend := &mockedAgentBackend{}
-	c, _ := newTestChat(t, backend)
+func TestUnknownSlashInputIsSentToTheAgentAsTyped(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "path", input: "/Users/me/main.go why does this panic?"},
+		{name: "unregistered word", input: "/nope arg"},
+		{name: "bare slash", input: "/"},
+	}
 
-	// when
-	c.Submit("/nope arg")
-	waitIdle(t, c)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			backend := &mockedAgentBackend{}
+			c, _ := newTestChat(t, backend)
 
-	// then
-	lines := c.Transcript()
-	require.Len(t, lines, 1)
-	assert.Equal(t, command.Error, lines[0].Kind)
-	assert.Equal(t, "Error: unknown command /nope", lines[0].Text)
-	assert.False(t, c.Busy())
+			// when
+			c.Submit(tc.input)
+			waitIdle(t, c)
+
+			// then
+			assert.Equal(t, []string{tc.input}, backend.inputs())
+			assert.Equal(t, []Line{
+				{Kind: User, Text: tc.input},
+				{Kind: Reply, Text: "reply"},
+			}, c.Transcript())
+		})
+	}
 }
 
 func TestCommandNameEndsAtAnyWhitespace(t *testing.T) {
@@ -152,10 +165,10 @@ func TestCommandNameEndsAtAnyWhitespace(t *testing.T) {
 	}
 }
 
-func TestPromptCommandWithArgumentsOnTheNextLineReachesTheAgent(t *testing.T) {
+func TestSkillCommandWithArgumentsOnTheNextLineReachesTheAgent(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
-	c, _ := newTestChat(t, backend, WithCommand(command.SkillCommand("brainstorm", "Explore")))
+	c, _ := newTestChat(t, backend, WithSkillCommand("brainstorm", "Explore"))
 
 	// when
 	c.Submit("/brainstorm\nsome idea")
@@ -165,10 +178,10 @@ func TestPromptCommandWithArgumentsOnTheNextLineReachesTheAgent(t *testing.T) {
 	assert.Equal(t, []string{"/brainstorm\nsome idea"}, backend.inputs())
 }
 
-func TestPromptCommandIsRecordedAsAUserTurn(t *testing.T) {
+func TestSkillCommandIsRecordedAsAUserTurn(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
-	c, _ := newTestChat(t, backend, WithCommand(command.SkillCommand("brainstorm", "Explore")))
+	c, _ := newTestChat(t, backend, WithSkillCommand("brainstorm", "Explore"))
 
 	// when
 	c.Submit("/brainstorm some idea")
@@ -177,13 +190,13 @@ func TestPromptCommandIsRecordedAsAUserTurn(t *testing.T) {
 	// then
 	lines := c.Transcript()
 	require.Len(t, lines, 2)
-	assert.Equal(t, command.User, lines[0].Kind)
+	assert.Equal(t, User, lines[0].Kind)
 	assert.Equal(t, "/brainstorm some idea", lines[0].Text)
-	assert.Equal(t, command.Reply, lines[1].Kind)
+	assert.Equal(t, Reply, lines[1].Kind)
 	assert.Equal(t, "reply", lines[1].Text)
 }
 
-func TestPendingCommandIsEmptyDuringAPromptCommand(t *testing.T) {
+func TestProgressIsThinkingDuringASkillCommand(t *testing.T) {
 	// given
 	started := make(chan bool, 1)
 	release := make(chan struct{})
@@ -194,14 +207,14 @@ func TestPendingCommandIsEmptyDuringAPromptCommand(t *testing.T) {
 			return &agent.Response{Content: "reply"}, nil
 		},
 	}
-	c, _ := newTestChat(t, backend, WithCommand(command.SkillCommand("brainstorm", "Explore")))
+	c, _ := newTestChat(t, backend, WithSkillCommand("brainstorm", "Explore"))
 
 	// when
 	c.Submit("/brainstorm")
 	<-started
 
 	// then
-	assert.Empty(t, c.PendingCommand())
+	assert.Equal(t, Progress{Stage: Thinking}, c.Progress())
 	close(release)
 	waitIdle(t, c)
 }
@@ -282,7 +295,7 @@ func TestSlashCommandMarksChatBusy(t *testing.T) {
 	assert.False(t, c.Busy())
 }
 
-func TestPendingCommandNamesTheRunningCommand(t *testing.T) {
+func TestProgressNamesTheRunningCommand(t *testing.T) {
 	// given
 	release := make(chan struct{})
 	observed := make(chan bool, 1)
@@ -298,13 +311,34 @@ func TestPendingCommandNamesTheRunningCommand(t *testing.T) {
 	<-observed
 
 	// then
-	assert.Equal(t, "/hold there", c.PendingCommand())
+	assert.Equal(t, Progress{Stage: RunningCommand, Detail: "/hold there"}, c.Progress())
 	close(release)
 	waitIdle(t, c)
-	assert.Empty(t, c.PendingCommand())
+	assert.Equal(t, Progress{}, c.Progress())
 }
 
-func TestPendingCommandIsEmptyDuringATurn(t *testing.T) {
+func TestProgressReportsTheToolInFlightOverTheRunningCommand(t *testing.T) {
+	// given
+	release := make(chan struct{})
+	observed := make(chan bool, 1)
+	c, _ := newTestChat(t, &mockedAgentBackend{}, WithCommand(blockingCommand{
+		name:    "hold",
+		started: observed,
+		release: release,
+	}))
+	c.Submit("/hold")
+	<-observed
+
+	// when
+	agentFeedback{c}.ToolCalled("read", nil)
+
+	// then
+	assert.Equal(t, Progress{Stage: RunningTool, Detail: "read()"}, c.Progress())
+	close(release)
+	waitIdle(t, c)
+}
+
+func TestProgressIsThinkingDuringATurn(t *testing.T) {
 	// given
 	started := make(chan bool, 1)
 	release := make(chan struct{})
@@ -322,7 +356,44 @@ func TestPendingCommandIsEmptyDuringATurn(t *testing.T) {
 	<-started
 
 	// then
-	assert.Empty(t, c.PendingCommand())
+	assert.Equal(t, Progress{Stage: Thinking}, c.Progress())
+	close(release)
+	waitIdle(t, c)
+}
+
+func TestProgressIsIdleBeforeAnyInput(t *testing.T) {
+	// given
+	c, _ := newTestChat(t, &mockedAgentBackend{})
+
+	// when
+	result := c.Progress()
+
+	// then
+	assert.Equal(t, Progress{}, result)
+}
+
+func TestProgressReportsCancellingOverTheToolInFlight(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	var c *Chat
+	backend := &mockedAgentBackend{
+		processFunc: func(ctx context.Context, _ string) (*agent.Response, error) {
+			agentFeedback{c}.ToolCalled("read", nil)
+			started <- true
+			<-release
+			return nil, ctx.Err()
+		},
+	}
+	c, _ = newTestChat(t, backend)
+	c.Submit("hello")
+	<-started
+
+	// when
+	c.Cancel()
+
+	// then
+	assert.Equal(t, Progress{Stage: Cancelling}, c.Progress())
 	close(release)
 	waitIdle(t, c)
 }
@@ -349,10 +420,10 @@ func TestQueuedInputIsReportedAndDrained(t *testing.T) {
 	c.Submit("second")
 
 	// then
-	assert.True(t, c.Queued())
+	assert.True(t, c.Progress().Queued)
 	close(release)
 	waitIdle(t, c)
-	assert.False(t, c.Queued())
+	assert.False(t, c.Progress().Queued)
 	assert.Equal(t, []string{"first", "second"}, backend.inputs())
 }
 
@@ -375,68 +446,21 @@ func TestQuitWithoutObserverDoesNotPanic(t *testing.T) {
 	c.agent = &mockedAgentBackend{}
 
 	// when / then
-	assert.NotPanics(t, c.Quit)
-}
-
-func TestTranscriptLenAndSince(t *testing.T) {
-	// given
-	backend := &mockedAgentBackend{}
-	c, _ := newTestChat(t, backend)
-	for i := 0; i < 5; i++ {
-		c.append(command.Info, "line")
-	}
-
-	tests := []struct {
-		name        string
-		from        int
-		expectedLen int
-	}{
-		{name: "from zero returns everything", from: 0, expectedLen: 5},
-		{name: "from the middle returns the tail", from: 3, expectedLen: 2},
-		{name: "from the end returns nothing", from: 5, expectedLen: 0},
-		{name: "past the end returns nothing", from: 99, expectedLen: 0},
-		{name: "negative returns nothing", from: -1, expectedLen: 0},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// when
-			result := c.Since(tc.from)
-
-			// then
-			assert.Len(t, result, tc.expectedLen)
-		})
-	}
-
-	assert.Equal(t, 5, c.TranscriptLen())
-}
-
-func TestSinceReturnsACopy(t *testing.T) {
-	// given
-	backend := &mockedAgentBackend{}
-	c, _ := newTestChat(t, backend)
-	c.append(command.Info, "original")
-
-	// when
-	result := c.Since(0)
-	result[0].Text = "mutated"
-
-	// then
-	assert.Equal(t, "original", c.Transcript()[0].Text)
+	assert.NotPanics(t, commandContext{c}.Quit)
 }
 
 func TestClearResetsTranscript(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
 	c, _ := newTestChat(t, backend)
-	c.append(command.Info, "line")
+	c.append(Info, "line")
 
 	// when
-	err := c.Clear()
+	err := c.clear()
 
 	// then
 	assert.NoError(t, err)
-	assert.Zero(t, c.TranscriptLen())
+	assert.Zero(t, len(c.Transcript()))
 }
 
 func TestClearPropagatesResetFailure(t *testing.T) {
@@ -445,14 +469,14 @@ func TestClearPropagatesResetFailure(t *testing.T) {
 		resetSessionFunc: func() error { return errors.New("locked") },
 	}
 	c, _ := newTestChat(t, backend)
-	c.append(command.Info, "line")
+	c.append(Info, "line")
 
 	// when
-	err := c.Clear()
+	err := c.clear()
 
 	// then
 	assert.EqualError(t, err, "locked")
-	assert.Equal(t, 1, c.TranscriptLen())
+	assert.Equal(t, 1, len(c.Transcript()))
 }
 
 func TestConcurrentSubmitsAreSerialized(t *testing.T) {
@@ -478,9 +502,9 @@ func TestConcurrentSubmitsAreSerialized(t *testing.T) {
 
 	// then
 	assert.Len(t, backend.inputs(), 20)
-	assert.False(t, c.Queued())
+	assert.False(t, c.Progress().Queued)
 	for _, ln := range c.Transcript() {
-		assert.NotEqual(t, command.Error, ln.Kind)
+		assert.NotEqual(t, Error, ln.Kind)
 	}
 }
 
@@ -577,9 +601,9 @@ func TestCancelStopsTheRunningTurn(t *testing.T) {
 	lines := c.Transcript()
 	require.NotEmpty(t, lines)
 	last := lines[len(lines)-1]
-	assert.Equal(t, command.Info, last.Kind)
+	assert.Equal(t, Info, last.Kind)
 	assert.Equal(t, "Cancelled.", last.Text)
-	assert.False(t, c.Cancelling())
+	assert.NotEqual(t, Cancelling, c.Progress().Stage)
 }
 
 func TestCancellingIsReportedUntilTheTurnReturns(t *testing.T) {
@@ -601,10 +625,10 @@ func TestCancellingIsReportedUntilTheTurnReturns(t *testing.T) {
 	c.Cancel()
 
 	// then
-	assert.True(t, c.Cancelling())
+	assert.Equal(t, Cancelling, c.Progress().Stage)
 	close(release)
 	waitIdle(t, c)
-	assert.False(t, c.Cancelling())
+	assert.NotEqual(t, Cancelling, c.Progress().Stage)
 }
 
 func TestCancelDropsQueuedInput(t *testing.T) {
@@ -622,7 +646,7 @@ func TestCancelDropsQueuedInput(t *testing.T) {
 
 	// then
 	waitIdle(t, c)
-	assert.False(t, c.Queued())
+	assert.False(t, c.Progress().Queued)
 	assert.Equal(t, []string{"first"}, backend.inputs())
 }
 
@@ -661,7 +685,7 @@ func TestTurnErrorsOtherThanCancelAreReported(t *testing.T) {
 			lines := c.Transcript()
 			require.NotEmpty(t, lines)
 			last := lines[len(lines)-1]
-			assert.Equal(t, command.Error, last.Kind)
+			assert.Equal(t, Error, last.Kind)
 			assert.Contains(t, last.Text, "Error: ")
 		})
 	}
@@ -699,6 +723,6 @@ func TestCancelWhileIdleChangesNothing(t *testing.T) {
 
 	// then
 	assert.Empty(t, c.Transcript())
-	assert.False(t, c.Cancelling())
+	assert.NotEqual(t, Cancelling, c.Progress().Stage)
 	assert.False(t, c.Busy())
 }

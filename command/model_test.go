@@ -25,7 +25,7 @@ func TestModelCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Info, ctx.printed[0].kind)
+			assert.Equal(t, infoStream, ctx.printed[0].kind)
 			assert.Equal(t, "Models:\n  gpt-4\n  claude-3", ctx.printed[0].text)
 		}
 	})
@@ -43,7 +43,7 @@ func TestModelCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Info, ctx.printed[0].kind)
+			assert.Equal(t, infoStream, ctx.printed[0].kind)
 			assert.Equal(t, "No models available.", ctx.printed[0].text)
 		}
 	})
@@ -89,7 +89,7 @@ func TestModelCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Error, ctx.printed[0].kind)
+			assert.Equal(t, errorStream, ctx.printed[0].kind)
 			assert.Equal(t, "Error: unknown model", ctx.printed[0].text)
 		}
 	})

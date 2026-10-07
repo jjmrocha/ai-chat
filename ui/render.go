@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/jjmrocha/ai-chat/chat"
-	"github.com/jjmrocha/ai-chat/command"
 )
 
 const (
@@ -16,17 +15,17 @@ const (
 func (m model) renderBlock(ln chat.Line) string {
 	s := m.styles
 	switch ln.Kind {
-	case command.User:
+	case chat.User:
 		return s.user.Render(userPrefix + ln.Text)
-	case command.Info:
+	case chat.Info:
 		return s.info.Render(ln.Text)
-	case command.Error:
+	case chat.Error:
 		return s.err.Render(ln.Text)
-	case command.Activity:
+	case chat.Activity:
 		return m.renderActivity(ln)
-	case command.Telemetry:
+	case chat.Telemetry:
 		return s.turnSep.Render(m.printRule) + "\n" + s.telemetry.Render(ln.Text)
-	case command.Reply:
+	case chat.Reply:
 		return m.renderMarkdown(ln.Text)
 	default:
 		return ln.Text

@@ -64,6 +64,38 @@ func TestWithSkillCommand(t *testing.T) {
 	assert.Contains(t, result, "brainstorm")
 }
 
+func TestSkillCommandHelpIsItsDescription(t *testing.T) {
+	// given
+	c := newChat("test", WithSkillCommand("brainstorm", "Explore an idea"))
+
+	// when
+	var result string
+	for _, cmd := range c.Commands() {
+		if cmd.Name() == "brainstorm" {
+			result = cmd.Help()
+		}
+	}
+
+	// then
+	assert.Equal(t, "Explore an idea", result)
+}
+
+func TestWithCommandReplacesASkillCommand(t *testing.T) {
+	// given
+	var args argsCommand
+	args.name = "brainstorm"
+	backend := &mockedAgentBackend{}
+	c, _ := newTestChat(t, backend, WithSkillCommand("brainstorm", "Explore"), WithCommand(&args))
+
+	// when
+	c.Submit("/brainstorm idea")
+	waitIdle(t, c)
+
+	// then
+	assert.Empty(t, backend.inputs())
+	assert.Equal(t, "idea", args.args)
+}
+
 func TestWithCommandOverridesADefault(t *testing.T) {
 	// given
 	replacement := stubNamedCommand{name: "help"}

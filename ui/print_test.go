@@ -10,12 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jjmrocha/ai-chat/chat"
-	"github.com/jjmrocha/ai-chat/command"
 )
 
 func TestEmitPrintsTheLinesTheCoreReturns(t *testing.T) {
 	// given
-	core := &mockedChatCore{nextFunc: linesFrom([]chat.Line{{Kind: command.Info, Text: "one"}})}
+	core := &mockedChatCore{nextFunc: linesFrom([]chat.Line{{Kind: chat.Info, Text: "one"}})}
 	m := sized(t, core, 80, 24)
 	m.printing = false
 
@@ -29,7 +28,7 @@ func TestEmitPrintsTheLinesTheCoreReturns(t *testing.T) {
 
 func TestEmitIsSuppressedWhilePrinting(t *testing.T) {
 	// given
-	core := &mockedChatCore{nextFunc: linesFrom([]chat.Line{{Kind: command.Info, Text: "one"}})}
+	core := &mockedChatCore{nextFunc: linesFrom([]chat.Line{{Kind: chat.Info, Text: "one"}})}
 	m := sized(t, core, 80, 24)
 	m.printing = true
 	core.nextCalls.Store(0)
@@ -91,16 +90,16 @@ func TestChunkBlock(t *testing.T) {
 
 func everyKind() []chat.Line {
 	return []chat.Line{
-		{Kind: command.User, Text: strings.Repeat("typed ", 40)},
-		{Kind: command.Info, Text: strings.Repeat("noted ", 40)},
-		{Kind: command.Error, Text: "Error: " + strings.Repeat("why ", 40)},
+		{Kind: chat.User, Text: strings.Repeat("typed ", 40)},
+		{Kind: chat.Info, Text: strings.Repeat("noted ", 40)},
+		{Kind: chat.Error, Text: "Error: " + strings.Repeat("why ", 40)},
 		{
-			Kind:   command.Activity,
+			Kind:   chat.Activity,
 			Text:   `decision_yes_no(question="` + strings.Repeat("q", 180) + `")`,
 			Detail: strings.Repeat("d", 150),
 		},
-		{Kind: command.Reply, Text: strings.Repeat("word ", 200)},
-		{Kind: command.Telemetry, Text: "7 tool calls · 12.3s"},
+		{Kind: chat.Reply, Text: strings.Repeat("word ", 200)},
+		{Kind: chat.Telemetry, Text: "7 tool calls · 12.3s"},
 	}
 }
 
@@ -138,9 +137,9 @@ func TestPendingNeverEmitsATab(t *testing.T) {
 	// given
 	code := "\t\tbuilder.WriteString(" + strings.Repeat("x", 30) + ")"
 	all := []chat.Line{
-		{Kind: command.Reply, Text: "Fix:\n\n```go\nfunc f() {\n" + code + "\n}\n```"},
-		{Kind: command.Activity, Text: "shell_run()", Detail: "a\tb"},
-		{Kind: command.Info, Text: "a\tb"},
+		{Kind: chat.Reply, Text: "Fix:\n\n```go\nfunc f() {\n" + code + "\n}\n```"},
+		{Kind: chat.Activity, Text: "shell_run()", Detail: "a\tb"},
+		{Kind: chat.Info, Text: "a\tb"},
 	}
 	core := &mockedChatCore{
 		nextFunc: linesFrom(all),
@@ -160,7 +159,7 @@ func TestPendingNeverEmitsATab(t *testing.T) {
 
 func TestPendingKeepsTheTurnSeparatorOnTheTelemetryBlock(t *testing.T) {
 	// given
-	all := []chat.Line{{Kind: command.Telemetry, Text: "7 tool calls · 12.3s"}}
+	all := []chat.Line{{Kind: chat.Telemetry, Text: "7 tool calls · 12.3s"}}
 	core := &mockedChatCore{
 		nextFunc: linesFrom(all),
 	}
@@ -180,7 +179,7 @@ func TestPendingKeepsTheTurnSeparatorOnTheTelemetryBlock(t *testing.T) {
 
 func TestPendingIsUnwrappedBeforeTheFirstResize(t *testing.T) {
 	// given
-	all := []chat.Line{{Kind: command.Info, Text: strings.Repeat("noted ", 40)}}
+	all := []chat.Line{{Kind: chat.Info, Text: strings.Repeat("noted ", 40)}}
 	core := &mockedChatCore{
 		nextFunc: linesFrom(all),
 	}
@@ -208,8 +207,8 @@ func firstCallLines(all []chat.Line) func(chat.Cursor) ([]chat.Line, chat.Cursor
 func TestPrintBacklogWritesTheTranscriptInOrder(t *testing.T) {
 	// given
 	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{
-		{Kind: command.User, Text: "first"},
-		{Kind: command.Info, Text: "second"},
+		{Kind: chat.User, Text: "first"},
+		{Kind: chat.Info, Text: "second"},
 	})}
 	var out strings.Builder
 
@@ -226,7 +225,7 @@ func TestPrintBacklogWritesTheTranscriptInOrder(t *testing.T) {
 
 func TestPrintBacklogLeavesNothingForEmit(t *testing.T) {
 	// given
-	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{{Kind: command.Info, Text: "one"}})}
+	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{{Kind: chat.Info, Text: "one"}})}
 	var out strings.Builder
 	m := newModel(core).printBacklog(&out, 80, 24)
 
@@ -239,7 +238,7 @@ func TestPrintBacklogLeavesNothingForEmit(t *testing.T) {
 
 func TestPrintBacklogWithoutATerminalSizeLeavesTheLinesForEmit(t *testing.T) {
 	// given
-	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{{Kind: command.Info, Text: "one"}})}
+	core := &mockedChatCore{nextFunc: firstCallLines([]chat.Line{{Kind: chat.Info, Text: "one"}})}
 	var out strings.Builder
 	m := newModel(core).printBacklog(&out, 0, 0)
 

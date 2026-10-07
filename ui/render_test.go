@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/jjmrocha/ai-chat/chat"
-	"github.com/jjmrocha/ai-chat/command"
 )
 
 func TestRenderBlockAppliesGlyphs(t *testing.T) {
@@ -20,23 +19,23 @@ func TestRenderBlockAppliesGlyphs(t *testing.T) {
 	}{
 		{
 			name:     "user line gains the prompt glyph",
-			line:     chat.Line{Kind: command.User, Text: "hello"},
+			line:     chat.Line{Kind: chat.User, Text: "hello"},
 			contains: []string{"❯ hello"},
 		},
 		{
 			name:     "activity with detail gains both glyphs",
-			line:     chat.Line{Kind: command.Activity, Text: "read(x)", Detail: "ok"},
+			line:     chat.Line{Kind: chat.Activity, Text: "read(x)", Detail: "ok"},
 			contains: []string{"● read(x)", "⎿ ok"},
 		},
 		{
 			name:     "activity without detail omits the detail glyph",
-			line:     chat.Line{Kind: command.Activity, Text: "read(x)"},
+			line:     chat.Line{Kind: chat.Activity, Text: "read(x)"},
 			contains: []string{"● read(x)"},
 			absent:   []string{"⎿"},
 		},
 		{
 			name:     "info line is unadorned",
-			line:     chat.Line{Kind: command.Info, Text: "note"},
+			line:     chat.Line{Kind: chat.Info, Text: "note"},
 			contains: []string{"note"},
 			absent:   []string{"❯", "●", "⎿"},
 		},
@@ -68,7 +67,7 @@ func TestRenderActivityDetailUsesActivityStyle(t *testing.T) {
 	m.styles.telemetry = fg("6")
 
 	// when
-	result := m.renderActivity(chat.Line{Kind: command.Activity, Text: "read(x)", Detail: "ok"})
+	result := m.renderActivity(chat.Line{Kind: chat.Activity, Text: "read(x)", Detail: "ok"})
 
 	// then
 	params := sgrParams(result)
@@ -125,7 +124,7 @@ func TestRenderBlockStylesMarkdownReplies(t *testing.T) {
 			m := sized(t, &mockedChatCore{}, 80, 24)
 
 			// when
-			result := m.renderBlock(chat.Line{Kind: command.Reply, Text: tc.text})
+			result := m.renderBlock(chat.Line{Kind: chat.Reply, Text: tc.text})
 
 			// then
 			params := sgrParams(result)

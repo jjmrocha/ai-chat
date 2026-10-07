@@ -44,7 +44,7 @@ func TestMCPCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Info, ctx.printed[0].kind)
+			assert.Equal(t, infoStream, ctx.printed[0].kind)
 			assert.Equal(t, "MCP servers:\n  server-a: on\n  server-b: off", ctx.printed[0].text)
 		}
 	})
@@ -124,7 +124,7 @@ func TestMCPCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Error, ctx.printed[0].kind)
+			assert.Equal(t, errorStream, ctx.printed[0].kind)
 		}
 	})
 
@@ -142,7 +142,7 @@ func TestMCPCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Error, ctx.printed[0].kind)
+			assert.Equal(t, errorStream, ctx.printed[0].kind)
 			assert.Equal(t, "Error: connection failed", ctx.printed[0].text)
 		}
 	})
@@ -157,7 +157,7 @@ func TestMCPCommand(t *testing.T) {
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
-			assert.Equal(t, Error, ctx.printed[0].kind)
+			assert.Equal(t, errorStream, ctx.printed[0].kind)
 			assert.Equal(t, "Usage: /mcp [on|off] [name]", ctx.printed[0].text)
 		}
 	})

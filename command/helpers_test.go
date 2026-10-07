@@ -41,15 +41,21 @@ func (m *mockedAgentController) Compact() {
 	}
 }
 
+type stream int
+
+const (
+	infoStream stream = iota
+	errorStream
+)
+
 type printedLine struct {
-	kind Kind
+	kind stream
 	text string
 }
 
 type mockedContext struct {
 	ctx       context.Context
 	agentFunc func() AgentController
-	printFunc func(kind Kind, text string)
 	clearFunc func() error
 	printed   []printedLine
 }
@@ -61,11 +67,12 @@ func (m *mockedContext) Agent() AgentController {
 	return m.agentFunc()
 }
 
-func (m *mockedContext) Print(kind Kind, text string) {
-	m.printed = append(m.printed, printedLine{kind: kind, text: text})
-	if m.printFunc != nil {
-		m.printFunc(kind, text)
-	}
+func (m *mockedContext) Info(text string) {
+	m.printed = append(m.printed, printedLine{kind: infoStream, text: text})
+}
+
+func (m *mockedContext) Error(text string) {
+	m.printed = append(m.printed, printedLine{kind: errorStream, text: text})
 }
 
 func (m *mockedContext) Context() context.Context {
@@ -109,11 +116,11 @@ func (m *mockedMCPController) Stop(name string) error {
 	return m.stopFunc(name)
 }
 
-type mockedSkillsController struct {
+type mockedSkillCatalog struct {
 	skillsFunc func() []string
 }
 
-func (m *mockedSkillsController) Skills() []string {
+func (m *mockedSkillCatalog) Skills() []string {
 	if m.skillsFunc == nil {
 		return nil
 	}

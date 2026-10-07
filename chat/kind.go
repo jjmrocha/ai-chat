@@ -1,4 +1,4 @@
-package command
+package chat
 
 // Kind classifies a transcript line so a front-end can style it. The core
 // stores plain text and never decorates it; choosing a color, glyph or layout

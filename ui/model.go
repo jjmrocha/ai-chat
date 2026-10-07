@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -59,6 +60,8 @@ func newInput() textarea.Model {
 	ti.DynamicHeight = true
 	ti.MinHeight = 1
 	ti.MaxHeight = maxInputLines
+	// Without a content limit, textarea also caps the input at MaxHeight lines.
+	ti.MaxContentHeight = math.MaxInt
 
 	ti.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("shift+enter", "alt+enter", "ctrl+j"),
