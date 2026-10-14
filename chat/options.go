@@ -2,6 +2,7 @@ package chat
 
 import (
 	"github.com/jjmrocha/ai-chat/command"
+	"github.com/jjmrocha/ai-toolkit/subagent"
 )
 
 // Option configures a [Chat] at construction. Options are applied in order, so
@@ -44,6 +45,18 @@ func WithSkills(coll command.SkillCatalog) Option {
 // completion show description.
 func WithSkillCommand(name, description string) Option {
 	return WithCommand(skillCommand{name: name, description: description})
+}
+
+// WithSubagents shows the work of mgr's running sub-agent in
+// [Progress].Subagent. It replaces the [subagent.Feedback] set on mgr. A nil
+// mgr does nothing.
+func WithSubagents(mgr *subagent.Manager) Option {
+	return func(c *Chat) {
+		if mgr == nil {
+			return
+		}
+		mgr.SetFeedback(subagentFeedback{c})
+	}
 }
 
 // WithDefaultCommands registers every built-in command that needs no external

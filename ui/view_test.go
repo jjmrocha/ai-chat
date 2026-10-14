@@ -241,3 +241,57 @@ func TestCompletionRowsAreTruncatedToTheTerminalWidth(t *testing.T) {
 		assert.True(t, strings.HasSuffix(ansi.Strip(row), "…"))
 	}
 }
+
+func subagentModel(t *testing.T, width int) model {
+	t.Helper()
+	core := &mockedChatCore{progressFunc: func() chat.Progress {
+		return chat.Progress{
+			Stage:    chat.RunningTool,
+			Detail:   `subagent(agent="explore")`,
+			Subagent: "3 tools · 12.30K tokens",
+		}
+	}}
+	m := completionModel(t, core)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+	core.busy.Store(true)
+	next, _ = next.(model).Update(refreshMsg{})
+	return next.(model)
+}
+
+func TestLiveRegionShowsTheSubagentUnderTheToolCall(t *testing.T) {
+	// given
+	m := subagentModel(t, 80)
+
+	// when
+	result := liveLines(m)
+
+	// then
+	toolColumn := lipgloss.Width(result[1][:strings.Index(result[1], "subagent(")])
+	assert.Equal(t, strings.Repeat(" ", toolColumn)+"3 tools · 12.30K tokens", result[2])
+	assert.Equal(t, ansi.Strip(m.titleBar), result[3])
+}
+
+func TestSubagentLineIsTruncatedToTheTerminalWidth(t *testing.T) {
+	// given
+	m := subagentModel(t, 10)
+
+	// when
+	result := liveLines(m)[2]
+
+	// then
+	assert.LessOrEqual(t, lipgloss.Width(result), 10)
+	assert.True(t, strings.HasSuffix(result, "…"))
+}
+
+func TestCompletionHidesTheSubagentLineWhileOpen(t *testing.T) {
+	// given
+	m := subagentModel(t, 80)
+	withoutList := len(liveLines(m))
+
+	// when
+	result := liveLines(typeText(m, "/"))
+
+	// then
+	assert.Len(t, result, withoutList)
+	assert.NotContains(t, strings.Join(result, "\n"), "tools")
+}

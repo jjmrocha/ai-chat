@@ -1,293 +1,101 @@
 # ai-chat
 
-Build terminal chat agents in Go. Bring an [ai-toolkit](https://github.com/jjmrocha/ai-toolkit) agent; get a headless chat core, a Bubble Tea TUI, a pluggable slash-command framework, and an `/mcp` command to toggle MCP servers.
-
 [![Go Reference](https://pkg.go.dev/badge/github.com/jjmrocha/ai-chat.svg)](https://pkg.go.dev/github.com/jjmrocha/ai-chat)
-[![Go 1.27+](https://img.shields.io/badge/go-1.27+-00ADD8)](https://go.dev/dl/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![Go](https://img.shields.io/badge/go-1.27.1%2B-00ADD8?logo=go)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-- **Headless core.** `chat.Chat` runs the transcript and drives the agent with no terminal attached — drive it from a test, a script, or your own UI.
-- **Pluggable slash commands.** Ship the built-ins or implement `command.Command` and register your own. No forking.
-- **Swappable renderer.** `ui` is one consumer of the core, wired through a single `Observer`. The core stores undecorated text, so a replacement renderer owns every glyph and color.
-- **MCP toggling.** Hand the core an ai-toolkit MCP manager and users switch its servers on and off at runtime with `/mcp`.
+**Terminal chat agents in Go: bring an [ai-toolkit](https://github.com/jjmrocha/ai-toolkit)
+agent, and get a terminal UI with slash commands.**
 
-## Install
+I built this library for my own agents, and it follows my own preferences.
+More mature libraries exist. If this one fits your needs, use it.
 
 ```bash
 go get github.com/jjmrocha/ai-chat
 ```
 
-Requires Go 1.27+.
+## Highlights
 
-## Quickstart
+- 💬 **An inline terminal UI**: the conversation goes into the terminal's own scrollback.
+- ⌨️ **Slash commands**: built-in commands for models, effort, compaction, MCP servers and skills, and your own commands.
+- 📥 **No lost input**: messages that you send while the agent works wait in a queue.
+- ⏹️ **Cancel at any time**: `Esc` stops the running turn and clears the queue.
+- 👥 **Sub-agent progress**: see the tool calls and token count of a running sub-agent.
+- 🧱 **A headless core**: run the chat from a test or a script, without a terminal.
+- 🛡️ **Safe output**: model and tool output cannot send escape sequences to your terminal.
 
-A complete terminal chat agent backed by OpenRouter. Drop this into `main.go` in your own module and run it.
+## Quick start
 
-```bash
-export OPEN_ROUTER_KEY=sk-...
-go run .
-```
+A terminal chat agent on a local Ollama model:
 
 ```go
-package main
+func run(ctx context.Context) error {
+	modelCfg := llm.Config{
+		Provider: llm.ProviderOllama,
+		Model:    "qwen3:8b",
+	}
 
-import (
-	"context"
-	"log"
-	"os"
-
-	"github.com/jjmrocha/ai-chat/chat"
-	"github.com/jjmrocha/ai-chat/ui"
-	"github.com/jjmrocha/ai-toolkit/agent"
-	"github.com/jjmrocha/ai-toolkit/llm"
-)
-
-func main() {
-	client, err := llm.New(llm.Config{
-		Provider: llm.ProviderOpenRouter,
-		APIKey:   os.Getenv("OPEN_ROUTER_KEY"),
-		Model:    "deepseek/deepseek-v4-flash",
-		Models:   []string{"deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"},
-		Effort:   llm.EffortMedium,
-	})
+	model, err := llm.New(modelCfg)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	ag, err := agent.New(agent.Config{}, client)
+	agentCfg := agent.Config{MaxIterations: 10}
+
+	agt, err := agent.New(agentCfg, model)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	defer ag.Close()
+	defer agt.Close()
 
-	core := chat.New("CHAT", ag, chat.WithDefaultCommands())
-	ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
-	if err := ui.Run(context.Background(), core); err != nil {
-		log.Fatal(err)
-	}
+	core := chat.New("CHAT", agt, chat.WithDefaultCommands())
+
+	session := agent.SessionConfig{Prompt: "You are a helpful assistant."}
+	agt.StartSession(session)
+
+	return ui.Run(ctx, core)
 }
 ```
 
-Real consumers of this library: [joe](https://github.com/jjmrocha/joe), a terminal coding
-agent, and [warren](https://github.com/jjmrocha/warren), a financial analyst. Both wire a
-model, a toolbox and a skill collection into `chat.New` and hand the result to `ui.Run`,
-the way the snippet above does.
+- Call `chat.New` before `StartSession`. The agent reports a resumed session only to the chat that exists when the session starts.
+- [joe](https://github.com/jjmrocha/joe), a coding agent, and [warren](https://github.com/jjmrocha/warren), a financial analyst, are built this way.
 
-Create the core before starting the session. To resume a saved conversation, pass it in
-`SessionConfig.Messages`: the agent reports the restored turns only to the feedback
-receiver installed when the session starts, so a core created afterwards never replays
-them into the transcript.
+## Packages
 
-## Built-in commands
+| Package | What it does |
+| --- | --- |
+| [`chat`](#chat) | The headless core: transcript, input queue, commands and progress |
+| [`command`](#command) | The slash-command interface and the built-in commands |
+| [`ui`](#ui) | The terminal UI that shows a `chat.Chat` |
 
-`/help` and `/exit` are always registered. Everything else is opt-in:
-`WithDefaultCommands()` adds the four that need no collaborator, and `/mcp` and `/skills`
-have their own options because they take one.
+The full API reference is on
+[pkg.go.dev](https://pkg.go.dev/github.com/jjmrocha/ai-chat).
 
-| Option | Command | Effect |
-|---|---|---|
-| *(always on)* | `/help` | List every registered command |
-| *(always on)* | `/exit` | Quit |
-| `WithDefaultCommands()` | `/model [name]` | List available models or switch the active one |
-| `WithDefaultCommands()` | `/effort [level]` | List reasoning effort levels (`off`, `low`, `medium`, `max`) or switch to one |
-| `WithDefaultCommands()` | `/compact` | Force context compaction |
-| `WithDefaultCommands()` | `/clear` | Reset conversation |
-| `WithMCP(mgr)` | `/mcp [on\|off] [name]` | Show or toggle MCP servers |
-| `WithSkills(coll)` | `/skills` | List available skills |
-| `WithSkillCommand(name, desc)` | `/name [text]` | Send the input, as typed, to the agent as a user turn |
-
-Each of the four defaults is also available individually as `WithModelCommand()`,
-`WithEffortCommand()`, `WithCompactCommand()` and `WithClearCommand()`. Registering a
-command under an existing name replaces it, so `/help` and `/exit` are overridable like
-any other.
-
-Input that starts with `/` but names no registered command, such as a file path, is sent
-to the agent as an ordinary message — so a mistyped command reaches the model rather than
-an error.
-
-## Architecture
-
-```
-        ui (Bubble Tea)          ← swappable renderer
-          │  Observer
-          ▼
-     chat.Chat (headless core)   ← transcript + command dispatch
-        │            │
-   command registry  ai-toolkit agent
-   (/model, /mcp,     │      │
-    your own…)        llm    mcp / tools
-```
-
-`ui` is just one `Observer`. The core notifies it via `TranscriptChanged()` / `Quit()`;
-everything the UI needs it reads back through `chat.Chat`'s methods.
-
-**The core renders nothing.** A `chat.Line` holds a `Kind` and plain text — no prompt
-glyph, no bullet, no indent, no color. Deciding that a user line starts with `❯` is the
-renderer's job, which is what makes swapping `ui` for your own front-end worth doing.
-The core does strip terminal escape sequences and control characters (all but newline
-and tab) from every line, so model or tool output can never write to the user's
-clipboard, retitle the window or disguise a link, whichever front-end prints it.
-
-**Input is queued, not lost while busy.** `Submit` returns immediately and the work runs on the
-core's own goroutine. Anything sent while a turn is running is queued — the placeholder
-reads `(queued)` — and commands and turns share that one queue, so they run strictly in
-submission order and never overlap. `Esc` (`Cancel`) stops the running turn or command
-and drops the queue; `Ctrl+C` quits, and `ui.Run` closes the core on the way out, so no
-turn is left running against the agent.
-
-### How the TUI behaves
-
-`ui` renders inline rather than taking over the screen. Each finished transcript line is
-printed above a live region holding the thinking row, the title bar, the input and the
-status line, so the conversation ends up in the terminal's own scrollback: selection,
-copying and wheel scrolling are the terminal's, and work as they do for any other
-command's output. The trade-off is that printed lines are never repainted, so resizing
-the window leaves earlier markdown wrapped at the old width. `/clear` resets the session
-but leaves the conversation in the scrollback, still readable.
-
-Keys: `Enter` sends, `Shift+Enter` (or `Alt+Enter` / `Ctrl+J`) adds a line, `↑` / `↓` walk
-prompt history, `Esc` cancels the running turn or command and drops queued prompts,
-`Ctrl+C` quits.
-
-Typing `/` at the start of the input lists up to three matching commands, with their help,
-above the title bar: `↑` / `↓` pick one, `Enter` runs it, `Tab` fills it in so you can add
-arguments, `Esc` dismisses the list.
-
-### Colors
-
-There is one palette, internal to `ui`, and it cannot be switched — not by the user, not
-by an option. A fixed set of colors can only be right for the background it was tuned
-against, and neither this library nor the program embedding it can know the user's. So
-every value is either an ANSI index, which the terminal's own profile defines, or empty,
-meaning the terminal's default text color.
-
-Markdown replies follow the same rule. They use glamour's `dark` layout with every color
-replaced by a palette value: bold, italic and strikethrough render as text attributes,
-links show underlined text followed by the URL, and fenced code blocks are highlighted in
-the 16 basic ANSI colors. Glamour cannot nest styles, so code inside bold or a link loses
-the outer style.
-
-## Recipes
-
-### Add a custom slash command
-
-Implement `command.Command` and register it with `chat.WithCommand`.
+### `chat`
 
 ```go
-type pingCmd struct{}
-
-func (pingCmd) Name() string { return "ping" }
-func (pingCmd) Help() string { return "Reply with pong" }
-func (pingCmd) Run(ctx command.Context, args string) {
-	ctx.Info("pong " + args)
-}
-
-core := chat.New("CHAT", ag, chat.WithCommand(pingCmd{}))
-```
-
-`Help()` returns the description only — no leading `/ping`, no padding. `/help` builds the
-left column from `Name()` and aligns every description to the widest entry, so a command
-cannot knock the column out of true.
-
-A command that takes arguments also implements `command.Argumented`, and the spec is
-appended after the name:
-
-```go
-func (pingCmd) Args() string { return "[message]" }   // renders as: /ping [message]  Reply with pong
-```
-
-`Argumented` is optional and detected by type assertion, so the method name and receiver
-have to match exactly — a `pingCmd` registered by value whose `Args()` is declared on
-`*pingCmd` compiles fine and silently renders as a bare `/ping`.
-
-`command.Context` gives a command the agent (`Agent()`), the transcript (`Info`, `Error`),
-session reset (`Clear`) and a cancellation context (`Context()`) — and nothing else. A
-command needing more than that is handed its own collaborator at construction, the way
-`/mcp` and `/skills` are, so no command can reach a capability it was not given.
-
-`Run` is called on the core's worker goroutine, one command at a time, so it needs no
-locking of its own — but a slow `Run` blocks every queued input behind it. Pass
-`ctx.Context()` to anything it waits on: `Esc` cancels that context, and a command that
-ignores it cannot be interrupted.
-
-### Register an MCP server
-
-```go
-toolBox := tools.NewToolBox()
-mcpMng := mcp.NewManager(toolBox)
-defer mcpMng.Close()
-
-mcpMng.Register(mcp.ClientConfig{
-	Name:    "playwright",
-	Command: "npx",
-	Args:    []string{"@playwright/mcp@latest"},
-})
-
-ag, _ := agent.New(agent.Config{}, client)
-core := chat.New("CHAT", ag, chat.WithMCP(mcpMng))
-ag.StartSession(agent.SessionConfig{
-	Prompt:  "You are a helpful assistant.",
-	ToolBox: toolBox,
-})
-```
-
-Users then toggle servers at runtime: `/mcp on playwright`, `/mcp off playwright`, `/mcp`
-to list. With exactly one server registered, the name may be omitted.
-
-> **Security:** `ClientConfig.Command` and `Args` are executed with `os/exec` **without a
-> shell**, so they are trusted input. Populate them from operator configuration, never
-> from untrusted user input.
-
-### Register skills
-
-A skill is a folder holding a `SKILL.md`. Only the name and description reach the model up
-front, as a catalog appended to the system prompt; the body loads on demand when the model
-calls `skill_load`.
-
-```go
-toolBox := tools.NewToolBox()
-skillColl := skills.NewCollection()
-if err := skillColl.Add("./skills/stock-research"); err != nil {
-	log.Fatal(err)
-}
-
-ag, _ := agent.New(agent.Config{}, client)
-core := chat.New("CHAT", ag, chat.WithSkills(skillColl))
-ag.StartSession(agent.SessionConfig{
-	Prompt:  "You are a helpful assistant.",
-	ToolBox: toolBox,
-	Skills:  skillColl,
-})
-```
-
-`/skills` lists what is registered. Nothing is discovered automatically — a skill reaches
-the model only because `Add` put it there.
-
-To invoke a skill as a slash command, register it with `WithSkillCommand`:
-
-```go
-core := chat.New("CHAT", ag,
-	chat.WithSkills(skillColl),
-	chat.WithSkillCommand("stock-research", "Research a stock"),
+core := chat.New("CHAT", agt,
+	chat.WithDefaultCommands(),
+	chat.WithMCP(mcpManager),
+	chat.WithSkills(collection),
+	chat.WithSkillCommand("git-release", "Draft release notes"),
+	chat.WithSubagents(subagentManager),
 )
 ```
 
-`/stock-research AAPL` completes and appears in `/help` like any command, but it is not
-run: the line is sent to the agent as a user turn, exactly as typed, and the model loads
-the skill from its catalog.
+- `New` installs the chat as the agent's `agent.Feedback`. Use each agent for one chat only.
+- `Submit` returns at once. Turns and commands run one at a time, in the order that they arrive.
+- `Cancel` stops the running turn or command and removes the queued input.
+- `WithSubagents` shows the work of the running sub-agent in `Progress`. It replaces the feedback that is set on the manager.
+- `WithTelemetryFormatter` changes the line after each turn. `WithStatusFormatter` changes the status line.
+- The core removes escape sequences and control characters from all text, but keeps newlines and tabs.
 
-> **Security:** a skill folder is trusted input, like an MCP server command. The
-> `skill_execute_file` tool runs files the folder ships with the authority and environment
-> of the chat process.
-
-### Drive the core headless
-
-No terminal required. `Submit` is asynchronous, though, so a script has to wait for the
-turn before reading the transcript — poll `Busy()`:
+To use the chat without a terminal, poll `Busy` until the turn ends:
 
 ```go
-core := chat.New("CHAT", ag)
-ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
+core := chat.New("CHAT", agt)
+agt.StartSession(session)
+
 core.Submit("hello")
 
 for core.Busy() {
@@ -299,87 +107,92 @@ for _, line := range core.Transcript() {
 }
 ```
 
-`Busy()` covers the queue as well as the running turn, so the loop also drains anything
-submitted behind it. For anything longer-lived than a script, install an `Observer`
-instead of polling, and call `core.Close()` when you are done: it cancels whatever is
-still running and waits for it, so the agent is idle before you close it.
+- `Busy` is true while a turn runs and while input waits in the queue.
+- For a long-running program, install an `Observer` with `SetObserver` instead of polling.
+- Call `Close` when you are done. It cancels the running work and waits for it to stop.
 
-### Write your own front-end
+### `command`
 
-Implement `chat.Observer`, hand it to the core, and read the transcript back on each
-notification. `Next(cursor)` copies only the lines you have not shown yet and returns the
-cursor to pass next time, which is what you want when the transcript grows all session.
-For a progress row, `Progress()` reports in one snapshot whether the core is idle,
-thinking, running a tool or command, or cancelling, and whether input is queued;
-`StatusText()` is the rendered model, effort and token status line.
+| Option | Command | What it does |
+| --- | --- | --- |
+| *(always)* | `/help` | Lists every registered command |
+| *(always)* | `/exit` | Quits |
+| `WithDefaultCommands` | `/model [name]` | Lists the models, or changes to the named model |
+| `WithDefaultCommands` | `/effort [level]` | Lists the effort levels (`off`, `low`, `medium`, `max`), or changes to one |
+| `WithDefaultCommands` | `/compact` | Summarizes the older turns now |
+| `WithDefaultCommands` | `/clear` | Starts a new conversation |
+| `WithMCP(mgr)` | `/mcp [on\|off] [name]` | Lists the MCP servers, or starts or stops one |
+| `WithSkills(coll)` | `/skills` | Lists the skills |
+| `WithSkillCommand(name, desc)` | `/name [text]` | Sends the input, as typed, to the agent |
+
+To add your own command, implement `command.Command`:
 
 ```go
-type printer struct {
-	core   *chat.Chat
-	mu     sync.Mutex
-	cursor chat.Cursor
-	done   chan struct{}
+type pingCmd struct{}
+
+func (pingCmd) Name() string { return "ping" }
+
+func (pingCmd) Help() string { return "Reply with pong" }
+
+func (pingCmd) Run(ctx command.Context, args string) {
+	ctx.Info("pong " + args)
 }
-
-func (p *printer) TranscriptChanged() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	lines, next := p.core.Next(p.cursor)
-	for _, line := range lines {
-		fmt.Println(render(line))
-	}
-	p.cursor = next
-}
-
-func (p *printer) Quit() { close(p.done) }
-
-func render(line chat.Line) string {
-	switch line.Kind {
-	case chat.User:
-		return "> " + line.Text
-	case chat.Activity:
-		// Text is the tool call; Detail is its result.
-		return "* " + line.Text + "\n    " + line.Detail
-	default:
-		return line.Text
-	}
-}
-
-core := chat.New("CHAT", ag)
-defer core.Close()
-core.SetContext(context.Background())
-p := &printer{core: core, done: make(chan struct{})}
-core.SetObserver(p)
-ag.StartSession(agent.SessionConfig{Prompt: "You are a helpful assistant."})
-
-// … read input and call core.Submit until /exit …
-<-p.done
 ```
 
-Both `Observer` methods may be called from any goroutine, and from inside a `Chat` method,
-so neither should block — `Quit` only closes a channel, and `main` returns once it is
-closed, so the deferred `Close` runs. The cursor survives `/clear`: after a reset `Next` starts again
-from the new transcript's first line, so nothing is skipped or printed twice.
+```go
+core := chat.New("CHAT", agt, chat.WithCommand(pingCmd{}))
+```
 
-## Packages
+- `Help` returns only the description. `/help` adds the name and aligns the columns.
+- To show arguments in `/help`, also implement `command.Argumented`. Declare `Args` on the same receiver type that you register.
+- `command.Context` gives a command the agent, the transcript, a session reset and a cancellation context.
+- If a command needs more, give it to the command when you create it. `/mcp` and `/skills` do this.
+- `Run` blocks the queue until it returns. Pass `ctx.Context()` to everything that it waits on, so `Esc` can stop it.
+- A command with the same name replaces the earlier one. This includes `/help` and `/exit`.
+- Input that starts with `/` but names no command goes to the agent as a normal message.
+- `WithDefaultCommands` adds four commands. To add only one, use `WithModelCommand`, `WithEffortCommand`, `WithCompactCommand` or `WithClearCommand`.
+- With one MCP server, `/mcp on` and `/mcp off` need no server name.
+- A skill command does not run code. The agent gets the input, for example `/git-release v1.2`, and loads the skill itself.
 
-| Package | Purpose |
-|---|---|
-| `chat` | Headless core: transcript, command dispatch, agent feedback, status. |
-| `command` | Slash-command framework and the built-in commands. |
-| `ui` | Bubble Tea TUI renderer (`ui.Run`). |
+### `ui`
 
-Full type and method reference: **[pkg.go.dev/github.com/jjmrocha/ai-chat](https://pkg.go.dev/github.com/jjmrocha/ai-chat)**.
+```go
+if err := ui.Run(ctx, core); err != nil {
+	return err
+}
+```
 
-## Configuration
+| Key | What it does |
+| --- | --- |
+| `Enter` | Sends the input |
+| `Shift+Enter`, `Alt+Enter` or `Ctrl+J` | Adds a line |
+| `↑` / `↓` | Shows the previous or next input |
+| `Esc` | Stops the running turn or command, and clears the queue |
+| `Ctrl+C` | Quits |
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `OPEN_ROUTER_KEY` | for OpenRouter | API key passed to `llm.Config.APIKey`. |
+- The UI draws inline, not on a full screen. Finished lines go into the terminal's scrollback, so you select, copy and scroll them as usual.
+- The UI does not draw printed lines again. After you resize the window, earlier markdown keeps its old width.
+- Type `/` at the start of the input to list up to three matching commands. `↑` and `↓` select, `Enter` runs, `Tab` fills in, and `Esc` closes the list.
+- While a sub-agent runs, the row under the thinking row shows its tool calls and latest token count.
+- The colors are ANSI color indexes, so your terminal's theme sets them. You cannot change the palette.
+- Code blocks in replies use the 16 basic ANSI colors. Code in bold text or in a link loses the outer style.
+- `Run` sets the observer and the context of the core. It closes the core before it returns.
 
-ai-toolkit also supports Ollama (no key) and Anthropic — see
-[ai-toolkit](https://github.com/jjmrocha/ai-toolkit) for provider configuration.
+## Security
+
+ai-chat runs the MCP servers and skill scripts that you register, with your
+program's authority over the whole filesystem. `/mcp` starts an MCP server's
+`Command` without a shell. A skill's `skill_execute_file` tool runs the files in
+the skill folder. MCP servers and skill scripts get a filtered environment, but
+they can still read credential files on disk.
+
+Take MCP commands and skill folders from your own configuration. Never take
+them from untrusted input.
+
+The core removes escape sequences and control characters from all model and
+tool output. That output therefore cannot change the clipboard, the window
+title or the target of a link.
 
 ## License
 
-[MIT](LICENSE) © 2026 Joaquim Rocha
+MIT, see [LICENSE](LICENSE).

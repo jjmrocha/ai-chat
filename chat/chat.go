@@ -47,6 +47,7 @@ type Chat struct {
 	observer       Observer
 	pendingTool    string
 	pendingCommand string
+	subagent       subagentState
 	lastMeta       agent.Metadata
 	model          modelState
 }

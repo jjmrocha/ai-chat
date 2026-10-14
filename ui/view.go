@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jjmrocha/ai-chat/chat"
 	"github.com/jjmrocha/ai-chat/internal/format"
@@ -34,7 +35,7 @@ func (m model) View() tea.View {
 }
 
 func (m model) liveRegion() string {
-	top := "\n" + m.thinkingLine() + "\n"
+	top := "\n" + m.thinkingLine() + "\n" + m.subagentLine()
 	if m.completer.open() {
 		top = m.completionView()
 	}
@@ -86,6 +87,15 @@ func (m model) thinkingLabel() string {
 	default:
 		return "Thinking for " + elapsed
 	}
+}
+
+func (m model) subagentLine() string {
+	text := m.core.Progress().Subagent
+	if text == "" {
+		return ""
+	}
+	indent := strings.Repeat(" ", lipgloss.Width(m.spinner.View())+1)
+	return ansi.Truncate(m.styles.footer.Render(indent+text), m.width, "…")
 }
 
 func (m model) placeholder() string {

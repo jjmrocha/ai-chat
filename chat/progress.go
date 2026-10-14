@@ -33,6 +33,10 @@ type Progress struct {
 
 	// Queued reports that input is waiting behind the running turn or command.
 	Queued bool
+
+	// Subagent describes the running sub-agent's work, for example
+	// "3 tools · 12.30K tokens". It is empty when no sub-agent is running.
+	Subagent string
 }
 
 // Progress reports what the core is doing right now. Cancelling takes
@@ -43,7 +47,7 @@ func (c *Chat) Progress() Progress {
 	defer c.mu.Unlock()
 
 	busy, queued, cancelling := c.inbox.state()
-	p := Progress{Queued: queued}
+	p := Progress{Queued: queued, Subagent: c.subagent.text()}
 	switch {
 	case cancelling:
 		p.Stage = Cancelling
