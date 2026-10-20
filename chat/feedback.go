@@ -13,7 +13,10 @@ var _ agent.Feedback = agentFeedback{}
 type agentFeedback struct{ c *Chat }
 
 func (f agentFeedback) ToolCalled(name string, args map[string]any) {
-	f.c.mutate(func() { f.c.pendingTool = sanitize(formatToolCall(name, args)) })
+	f.c.mutate(func() {
+		f.c.pendingTool = sanitize(formatToolCall(name, args))
+		f.c.stageStart = f.c.now()
+	})
 }
 
 func (f agentFeedback) ToolReturned(_ string, result string, err error, elapsed time.Duration) {
@@ -76,6 +79,9 @@ func (c *Chat) closeToolCall(response string) {
 	c.mu.Lock()
 	request := c.pendingTool
 	c.pendingTool = ""
+	if request != "" {
+		c.stageStart = c.now()
+	}
 	c.mu.Unlock()
 
 	if request == "" {

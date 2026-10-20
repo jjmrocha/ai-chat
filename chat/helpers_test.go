@@ -130,9 +130,31 @@ func newTestChat(t *testing.T, backend *mockedAgentBackend, opts ...Option) (*Ch
 	t.Helper()
 	c := newChat("TEST", opts...)
 	c.agent = backend
+	c.now = newFakeClock().current
 	obs := &mockedObserver{}
 	c.SetObserver(obs)
 	return c, obs
+}
+
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{now: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
+}
+
+func (f *fakeClock) current() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.now
+}
+
+func (f *fakeClock) advance(d time.Duration) {
+	f.mu.Lock()
+	f.now = f.now.Add(d)
+	f.mu.Unlock()
 }
 
 func waitIdle(t *testing.T, c *Chat) {

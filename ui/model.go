@@ -2,7 +2,6 @@ package ui
 
 import (
 	"math"
-	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
@@ -29,11 +28,11 @@ type model struct {
 	height   int
 	ready    bool
 
-	cursor        chat.Cursor
-	thinkingSince time.Time
-	printing      bool
-	quitting      bool
-	spinning      bool
+	cursor   chat.Cursor
+	thinking bool
+	printing bool
+	quitting bool
+	spinning bool
 
 	hrule     string
 	printRule string
@@ -186,12 +185,10 @@ func (m *model) submit(text string) {
 
 func (m *model) trackThinking() tea.Cmd {
 	if !m.core.Busy() {
-		m.thinkingSince = time.Time{}
+		m.thinking = false
 		return nil
 	}
-	if m.thinkingSince.IsZero() {
-		m.thinkingSince = time.Now()
-	}
+	m.thinking = true
 	if m.spinning {
 		return nil
 	}

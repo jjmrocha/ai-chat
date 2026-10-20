@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -95,16 +96,21 @@ func splitCommand(s string) (name, args string) {
 }
 
 func (c *Chat) setPendingCommand(input string) {
-	c.mutate(func() { c.pendingCommand = input })
+	c.mutate(func() {
+		c.pendingCommand = input
+		c.stageStart = c.now()
+	})
 }
 
 func (c *Chat) enterWork(ctx context.Context) (leave func()) {
 	c.mu.Lock()
 	c.workCtx = ctx
+	c.stageStart = c.now()
 	c.mu.Unlock()
 	return func() {
 		c.mu.Lock()
 		c.workCtx = nil
+		c.stageStart = time.Time{}
 		c.mu.Unlock()
 	}
 }

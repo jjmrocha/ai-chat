@@ -398,6 +398,175 @@ func TestProgressReportsCancellingOverTheToolInFlight(t *testing.T) {
 	waitIdle(t, c)
 }
 
+func TestProgressReportsHowLongTheTurnHasBeenThinking(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return &agent.Response{Content: "reply"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+	clock := newFakeClock()
+	c.now = clock.current
+	c.Submit("hello")
+	<-started
+	clock.advance(3 * time.Second)
+
+	// when
+	result := c.Progress()
+
+	// then
+	assert.Equal(t, Progress{Stage: Thinking, Elapsed: 3 * time.Second}, result)
+	close(release)
+	waitIdle(t, c)
+}
+
+func TestProgressReportsHowLongTheToolHasRunNotTheTurn(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return &agent.Response{Content: "reply"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+	clock := newFakeClock()
+	c.now = clock.current
+	c.Submit("hello")
+	<-started
+	clock.advance(5 * time.Second)
+	agentFeedback{c}.ToolCalled("read", nil)
+	clock.advance(2 * time.Second)
+
+	// when
+	result := c.Progress()
+
+	// then
+	assert.Equal(t, Progress{Stage: RunningTool, Detail: "read()", Elapsed: 2 * time.Second}, result)
+	close(release)
+	waitIdle(t, c)
+}
+
+func TestProgressRestartsThinkingTimeWhenTheToolReturns(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return &agent.Response{Content: "reply"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+	clock := newFakeClock()
+	c.now = clock.current
+	c.Submit("hello")
+	<-started
+	agentFeedback{c}.ToolCalled("read", nil)
+	clock.advance(3 * time.Second)
+	agentFeedback{c}.ToolReturned("read", "ok", nil, 3*time.Second)
+	clock.advance(time.Second)
+
+	// when
+	result := c.Progress()
+
+	// then
+	assert.Equal(t, Progress{Stage: Thinking, Elapsed: time.Second}, result)
+	close(release)
+	waitIdle(t, c)
+}
+
+func TestProgressReportsHowLongTheCommandHasRun(t *testing.T) {
+	// given
+	release := make(chan struct{})
+	observed := make(chan bool, 1)
+	c, _ := newTestChat(t, &mockedAgentBackend{}, WithCommand(blockingCommand{
+		name:    "hold",
+		started: observed,
+		release: release,
+	}))
+	clock := newFakeClock()
+	c.now = clock.current
+	c.Submit("/hold")
+	<-observed
+	clock.advance(4 * time.Second)
+
+	// when
+	result := c.Progress()
+
+	// then
+	assert.Equal(t, Progress{Stage: RunningCommand, Detail: "/hold", Elapsed: 4 * time.Second}, result)
+	close(release)
+	waitIdle(t, c)
+}
+
+func TestProgressRestartsTheTimeForTheNextQueuedInput(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(context.Context, string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return &agent.Response{Content: "reply"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+	clock := newFakeClock()
+	c.now = clock.current
+	c.Submit("first")
+	<-started
+	c.Submit("second")
+	clock.advance(10 * time.Second)
+	release <- struct{}{}
+	<-started
+	clock.advance(time.Second)
+
+	// when
+	result := c.Progress()
+
+	// then
+	assert.Equal(t, Progress{Stage: Thinking, Elapsed: time.Second}, result)
+	close(release)
+	waitIdle(t, c)
+}
+
+func TestProgressReportsNoElapsedTimeWhileCancelling(t *testing.T) {
+	// given
+	started := make(chan bool, 1)
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(ctx context.Context, _ string) (*agent.Response, error) {
+			started <- true
+			<-release
+			return nil, ctx.Err()
+		},
+	}
+	c, _ := newTestChat(t, backend)
+	clock := newFakeClock()
+	c.now = clock.current
+	c.Submit("hello")
+	<-started
+	clock.advance(2 * time.Second)
+	c.Cancel()
+
+	// when
+	result := c.Progress()
+
+	// then
+	assert.Equal(t, Progress{Stage: Cancelling}, result)
+	close(release)
+	waitIdle(t, c)
+}
+
 func TestQueuedInputIsReportedAndDrained(t *testing.T) {
 	// given
 	release := make(chan struct{})

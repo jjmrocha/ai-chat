@@ -1,5 +1,7 @@
 package chat
 
+import "time"
+
 // Stage is what the core is busy with, as reported by [Chat.Progress].
 type Stage int
 
@@ -31,6 +33,12 @@ type Progress struct {
 	// for [RunningCommand]. It is empty for every other stage.
 	Detail string
 
+	// Elapsed is how long the current [Thinking], [RunningTool] or
+	// [RunningCommand] stage has run. Thinking starts again when a tool call
+	// returns and when the next queued input starts. It is zero for every
+	// other stage.
+	Elapsed time.Duration
+
 	// Queued reports that input is waiting behind the running turn or command.
 	Queued bool
 
@@ -52,11 +60,18 @@ func (c *Chat) Progress() Progress {
 	case cancelling:
 		p.Stage = Cancelling
 	case c.pendingTool != "":
-		p.Stage, p.Detail = RunningTool, c.pendingTool
+		p.Stage, p.Detail, p.Elapsed = RunningTool, c.pendingTool, c.stageElapsed()
 	case c.pendingCommand != "":
-		p.Stage, p.Detail = RunningCommand, c.pendingCommand
+		p.Stage, p.Detail, p.Elapsed = RunningCommand, c.pendingCommand, c.stageElapsed()
 	case busy:
-		p.Stage = Thinking
+		p.Stage, p.Elapsed = Thinking, c.stageElapsed()
 	}
 	return p
+}
+
+func (c *Chat) stageElapsed() time.Duration {
+	if c.stageStart.IsZero() {
+		return 0
+	}
+	return c.now().Sub(c.stageStart)
 }

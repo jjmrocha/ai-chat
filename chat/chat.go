@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
@@ -33,6 +34,7 @@ type Chat struct {
 	commands     *treemap.Map[string, command.Command]
 	telemetryFmt TelemetryFormatter
 	statusFmt    StatusFormatter
+	now          func() time.Time
 
 	inbox   *inbox
 	agentMu sync.Mutex
@@ -47,6 +49,7 @@ type Chat struct {
 	observer       Observer
 	pendingTool    string
 	pendingCommand string
+	stageStart     time.Time
 	subagent       subagentState
 	lastMeta       agent.Metadata
 	model          modelState
@@ -77,6 +80,7 @@ func newChat(name string, opts ...Option) *Chat {
 		commands:     treemap.New[string, command.Command](strings.Compare),
 		telemetryFmt: defaultTelemetryFormatter,
 		statusFmt:    defaultStatusFormatter,
+		now:          time.Now,
 		inbox:        newInbox(),
 	}
 	c.register(command.Help(c))

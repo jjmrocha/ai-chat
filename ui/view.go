@@ -2,7 +2,6 @@ package ui
 
 import (
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -68,7 +67,7 @@ func (m model) renderTitleBar() string {
 }
 
 func (m model) thinkingLine() string {
-	if m.thinkingSince.IsZero() {
+	if !m.thinking {
 		return ""
 	}
 	return m.spinner.View() + m.styles.footer.Render(" "+m.thinkingLabel())
@@ -76,7 +75,7 @@ func (m model) thinkingLine() string {
 
 func (m model) thinkingLabel() string {
 	p := m.core.Progress()
-	elapsed := format.Duration(time.Since(m.thinkingSince))
+	elapsed := format.Duration(p.Elapsed)
 	switch p.Stage {
 	case chat.Cancelling:
 		return "Cancelling…"

@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -99,6 +100,47 @@ func TestThinkingLineShowsTheRunningCommand(t *testing.T) {
 	// then
 	assert.Contains(t, result, "Waiting for /mcp on yfinance-mcp")
 	assert.NotContains(t, result, "Thinking for")
+}
+
+func TestThinkingLineShowsHowLongTheStageHasRun(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress chat.Progress
+		expected string
+	}{
+		{
+			name:     "thinking",
+			progress: chat.Progress{Stage: chat.Thinking, Elapsed: 3 * time.Second},
+			expected: "Thinking for 3s",
+		},
+		{
+			name:     "tool",
+			progress: chat.Progress{Stage: chat.RunningTool, Detail: "read(a.go)", Elapsed: 2 * time.Second},
+			expected: "read(a.go) · 2s",
+		},
+		{
+			name:     "command",
+			progress: chat.Progress{Stage: chat.RunningCommand, Detail: "/mcp on yfinance-mcp", Elapsed: 4 * time.Second},
+			expected: "Waiting for /mcp on yfinance-mcp · 4s",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			progress := tc.progress
+			core := &mockedChatCore{progressFunc: func() chat.Progress { return progress }}
+			m := sized(t, core, 80, 24)
+			core.busy.Store(true)
+			next, _ := m.Update(refreshMsg{})
+
+			// when
+			result := ansi.Strip(next.(model).thinkingLine())
+
+			// then
+			assert.Contains(t, result, tc.expected)
+		})
+	}
 }
 
 func TestViewIsEmptyWhileQuitting(t *testing.T) {
