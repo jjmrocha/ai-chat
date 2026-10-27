@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/jjmrocha/ai-chat/internal/format"
@@ -37,7 +38,7 @@ func defaultTelemetryFormatter(meta agent.Metadata) string {
 func tokenPart(meta agent.Metadata) string {
 	var sides []string
 	if meta.PromptTokens > 0 {
-		sides = append(sides, "↑"+formatTokens(meta.PromptTokens))
+		sides = append(sides, "↑"+formatTokens(meta.PromptTokens)+cachedPart(meta))
 	}
 	if meta.OutputTokens > 0 {
 		sides = append(sides, "↓"+formatTokens(meta.OutputTokens))
@@ -46,6 +47,14 @@ func tokenPart(meta agent.Metadata) string {
 		return ""
 	}
 	return strings.Join(sides, " ") + " tokens"
+}
+
+func cachedPart(meta agent.Metadata) string {
+	percent := meta.CacheReadTokens * 100 / meta.PromptTokens
+	if percent == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d%% cached)", percent)
 }
 
 func truncated(stopReason string) bool {

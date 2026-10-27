@@ -44,7 +44,7 @@ func TestTokensUsedUpdatesStatus(t *testing.T) {
 	c, obs := newTestChat(t, backend)
 
 	// when
-	agentFeedback{c}.TokensUsed(120)
+	agentFeedback{c}.TokensUsed(120, 0)
 
 	// then
 	assert.Equal(t, 120, c.Status().Tokens)

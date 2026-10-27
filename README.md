@@ -20,7 +20,7 @@ go get github.com/jjmrocha/ai-chat
 - ⌨️ **Slash commands**: built-in commands for models, effort, compaction, MCP servers and skills, and your own commands.
 - 📥 **No lost input**: messages that you send while the agent works wait in a queue.
 - ⏹️ **Cancel at any time**: `Esc` stops the running turn and clears the queue.
-- 👥 **Sub-agent progress**: see the tool calls and token count of a running sub-agent.
+- 👥 **Sub-agent progress**: see the tool calls, token count and cached tokens of a running sub-agent.
 - 🧱 **A headless core**: run the chat from a test or a script, without a terminal.
 - 🛡️ **Safe output**: model and tool output cannot send escape sequences to your terminal.
 
@@ -173,7 +173,7 @@ if err := ui.Run(ctx, core); err != nil {
 - The UI draws inline, not on a full screen. Finished lines go into the terminal's scrollback, so you select, copy and scroll them as usual.
 - The UI does not draw printed lines again. After you resize the window, earlier markdown keeps its old width.
 - Type `/` at the start of the input to list up to three matching commands. `↑` and `↓` select, `Enter` runs, `Tab` fills in, and `Esc` closes the list.
-- While a sub-agent runs, the row under the thinking row shows its tool calls and latest token count.
+- While a sub-agent runs, the row under the thinking row shows its tool calls, latest token count and the tokens read from cache.
 - The colors are ANSI color indexes, so your terminal's theme sets them. You cannot change the palette.
 - Code blocks in replies use the 16 basic ANSI colors. Code in bold text or in a link loses the outer style.
 - `Run` sets the observer and the context of the core. It closes the core before it returns.

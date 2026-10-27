@@ -32,7 +32,7 @@ func (f agentFeedback) InterimTextReceived(content string) {
 	f.c.append(Reply, text)
 }
 
-func (f agentFeedback) TokensUsed(totalTokens int) { f.c.setTokens(totalTokens) }
+func (f agentFeedback) TokensUsed(totalTokens, _ int) { f.c.setTokens(totalTokens) }
 
 func (f agentFeedback) ContextCompacted() { f.c.append(Info, "Context compacted.") }
 

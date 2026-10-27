@@ -85,7 +85,7 @@ func TestStatusUsesModelInfo(t *testing.T) {
 		},
 	}
 	c, _ := newTestChat(t, backend)
-	agentFeedback{c}.TokensUsed(250)
+	agentFeedback{c}.TokensUsed(250, 0)
 
 	// when
 	result := waitStatus(t, c, func(s StatusInfo) bool { return s.Model != "" })

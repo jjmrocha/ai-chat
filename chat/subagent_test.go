@@ -188,10 +188,36 @@ func TestSubagentProgressShowsTheLatestTokens(t *testing.T) {
 	c, _ := newTestChat(t, &mockedAgentBackend{})
 	fb := subagentFeedback{c}
 	fb.SubagentStarted("explore")
-	fb.TokensUsed("explore", 15)
+	fb.TokensUsed("explore", 15, 0)
 
 	// when
-	fb.TokensUsed("explore", 12300)
+	fb.TokensUsed("explore", 12300, 0)
+
+	// then
+	assert.Equal(t, "0 tools · 12.30K tokens", c.Progress().Subagent)
+}
+
+func TestSubagentProgressShowsTheCachedTokens(t *testing.T) {
+	// given
+	c, _ := newTestChat(t, &mockedAgentBackend{})
+	fb := subagentFeedback{c}
+	fb.SubagentStarted("explore")
+
+	// when
+	fb.TokensUsed("explore", 12300, 9840)
+
+	// then
+	assert.Equal(t, "0 tools · 12.30K tokens (9.84K cached)", c.Progress().Subagent)
+}
+
+func TestSubagentProgressHidesZeroCachedTokens(t *testing.T) {
+	// given
+	c, _ := newTestChat(t, &mockedAgentBackend{})
+	fb := subagentFeedback{c}
+	fb.SubagentStarted("explore")
+
+	// when
+	fb.TokensUsed("explore", 12300, 0)
 
 	// then
 	assert.Equal(t, "0 tools · 12.30K tokens", c.Progress().Subagent)
@@ -213,7 +239,7 @@ func TestSubagentProgressClearsWhenTheRunFinishes(t *testing.T) {
 			fb := subagentFeedback{c}
 			fb.SubagentStarted("explore")
 			fb.ToolCalled("explore", "echo")
-			fb.TokensUsed("explore", 15)
+			fb.TokensUsed("explore", 15, 0)
 
 			// when
 			fb.SubagentFinished("explore", tc.err)
@@ -230,7 +256,7 @@ func TestSubagentProgressResetsOnANewRun(t *testing.T) {
 	fb := subagentFeedback{c}
 	fb.SubagentStarted("explore")
 	fb.ToolCalled("explore", "echo")
-	fb.TokensUsed("explore", 15)
+	fb.TokensUsed("explore", 15, 0)
 	fb.SubagentFinished("explore", nil)
 
 	// when
@@ -247,7 +273,7 @@ func TestSubagentEventsNotifyTheObserver(t *testing.T) {
 	}{
 		{name: "started", event: func(fb subagentFeedback) { fb.SubagentStarted("explore") }},
 		{name: "tool called", event: func(fb subagentFeedback) { fb.ToolCalled("explore", "echo") }},
-		{name: "tokens used", event: func(fb subagentFeedback) { fb.TokensUsed("explore", 15) }},
+		{name: "tokens used", event: func(fb subagentFeedback) { fb.TokensUsed("explore", 15, 0) }},
 		{name: "finished", event: func(fb subagentFeedback) { fb.SubagentFinished("explore", nil) }},
 	}
 

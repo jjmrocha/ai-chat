@@ -70,6 +70,50 @@ func TestDefaultTelemetryFormatter(t *testing.T) {
 		assert.Equal(t, " ↑1.20K tokens", result)
 	})
 
+	t.Run("cached share shown after the prompt tokens", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{PromptTokens: 12300, CacheReadTokens: 9840, OutputTokens: 850}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, " ↑12.30K (80% cached) ↓850 tokens", result)
+	})
+
+	t.Run("cached share rounds down", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{PromptTokens: 1000, CacheReadTokens: 999}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, " ↑1K (99% cached) tokens", result)
+	})
+
+	t.Run("cached share below one percent hidden", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{PromptTokens: 1000, CacheReadTokens: 5}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, " ↑1K tokens", result)
+	})
+
+	t.Run("cached tokens without prompt tokens hidden", func(t *testing.T) {
+		// given
+		meta := agent.Metadata{CacheReadTokens: 50, OutputTokens: 10}
+
+		// when
+		result := defaultTelemetryFormatter(meta)
+
+		// then
+		assert.Equal(t, " ↓10 tokens", result)
+	})
+
 	t.Run("truncated reply flagged", func(t *testing.T) {
 		tests := []struct {
 			name       string
