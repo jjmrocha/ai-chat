@@ -1,9 +1,12 @@
 // Package ui is a Bubble Tea front-end for a chat.Chat.
 //
-// [Run] is the whole public surface: hand it a core and it takes over the
-// terminal until the user quits. It is one Observer of the core, not part of
-// it — replace this package with your own renderer without touching your agent
-// logic.
+// [Run] shows the chat: hand it a core and it takes over the terminal until
+// the user quits. It is one Observer of the core, not part of it — replace
+// this package with your own renderer without touching your agent logic.
+//
+// [StartWaiting] shows a one-line spinner with a message for slow work before
+// the chat opens, such as an app's startup. Lines printed with
+// [Waiting.Println] stay above it, and [Waiting.Stop] erases it.
 //
 // The UI renders inline rather than taking over the screen. Finished transcript
 // lines are printed above a small live region holding the thinking row, title

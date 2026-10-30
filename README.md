@@ -21,6 +21,7 @@ go get github.com/jjmrocha/ai-chat
 - 📥 **No lost input**: messages that you send while the agent works wait in a queue.
 - ⏹️ **Cancel at any time**: `Esc` stops the running turn and clears the queue.
 - 👥 **Sub-agent progress**: see the tool calls, token count and cached tokens of a running sub-agent.
+- ⏳ **A waiting line**: show a spinner and a message while your program starts, then remove it.
 - 🧱 **A headless core**: run the chat from a test or a script, without a terminal.
 - 🛡️ **Safe output**: model and tool output cannot send escape sequences to your terminal.
 
@@ -66,7 +67,7 @@ func run(ctx context.Context) error {
 | --- | --- |
 | [`chat`](#chat) | The headless core: transcript, input queue, commands and progress |
 | [`command`](#command) | The slash-command interface and the built-in commands |
-| [`ui`](#ui) | The terminal UI that shows a `chat.Chat` |
+| [`ui`](#ui) | The terminal UI that shows a `chat.Chat`, and a waiting line for slow work before it |
 
 The full API reference is on
 [pkg.go.dev](https://pkg.go.dev/github.com/jjmrocha/ai-chat).
@@ -177,6 +178,35 @@ if err := ui.Run(ctx, core); err != nil {
 - The colors are ANSI color indexes, so your terminal's theme sets them. You cannot change the palette.
 - Code blocks in replies use the 16 basic ANSI colors. Code in bold text or in a link loses the outer style.
 - `Run` sets the observer and the context of the core. It closes the core before it returns.
+
+To show progress before the chat opens, for example while your program starts,
+use a waiting line:
+
+```go
+wait := ui.StartWaiting(ctx, "Starting the MCP servers…")
+defer wait.Stop()
+
+if err := startServers(ctx); err != nil {
+	wait.Println("starting the MCP servers: " + err.Error())
+}
+
+wait.SetText("Starting the tools…")
+
+// more slow work
+
+wait.Stop()
+return ui.Run(ctx, core)
+```
+
+- The line shows the spinner of the thinking row, then your text. `SetText` replaces the text.
+- `Println` prints a line that stays above the spinner. Long lines wrap, and a newline starts a new line.
+- After `Stop`, or when standard output is not a terminal, `Println` writes the line to standard output.
+- `Stop` erases the line and returns when the line is gone. You can call it more than once.
+- Call `Stop` before you print other output or call `Run`.
+- While the line shows, the keys that you press are discarded. `Ctrl+C` erases the line, then interrupts your program as usual.
+- If standard output is not a terminal, the line does not show.
+- Text that is wider than the terminal is cut, and ends with `…`.
+- Do not put a newline in the text. ai-chat does not remove escape sequences or control characters from it.
 
 ## Security
 
