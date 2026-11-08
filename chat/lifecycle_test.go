@@ -39,8 +39,8 @@ func TestCancelRightAfterSubmitStopsTheTurn(t *testing.T) {
 	c.Cancel()
 
 	// then
-	waitIdle(t, c)
-	lines := c.Transcript()
+	c.Wait()
+	lines := transcript(c)
 	require.NotEmpty(t, lines)
 	assert.Equal(t, "Cancelled.", lines[len(lines)-1].Text)
 }
@@ -56,8 +56,8 @@ func TestCancelStopsTheRunningCommand(t *testing.T) {
 	c.Cancel()
 
 	// then
-	waitIdle(t, c)
-	lines := c.Transcript()
+	c.Wait()
+	lines := transcript(c)
 	require.NotEmpty(t, lines)
 	assert.Equal(t, Error, lines[len(lines)-1].Kind)
 }
@@ -81,8 +81,8 @@ func TestCancelledCompactReportsCancelledInsteadOfFailure(t *testing.T) {
 	c.Cancel()
 
 	// then
-	waitIdle(t, c)
-	assert.Equal(t, []Line{{Kind: Info, Text: "Cancelled."}}, c.Transcript())
+	c.Wait()
+	assert.Equal(t, []Line{{Kind: Info, Text: "Cancelled."}}, transcript(c))
 }
 
 func TestFailedCompactIsReported(t *testing.T) {
@@ -97,10 +97,10 @@ func TestFailedCompactIsReported(t *testing.T) {
 	c.Submit("/compact")
 
 	// then
-	waitIdle(t, c)
+	c.Wait()
 	assert.Equal(t, []Line{
 		{Kind: Error, Text: "Context compaction failed; will retry after the next turn."},
-	}, c.Transcript())
+	}, transcript(c))
 }
 
 func TestCloseCancelsWorkAndWaitsForIt(t *testing.T) {
@@ -132,7 +132,7 @@ func TestSubmitAfterCloseIsIgnored(t *testing.T) {
 	// then
 	assert.False(t, c.Busy())
 	assert.Empty(t, backend.inputs())
-	assert.Empty(t, c.Transcript())
+	assert.Empty(t, transcript(c))
 }
 
 func TestCloseSilencesTheObserver(t *testing.T) {
@@ -156,4 +156,40 @@ func TestCloseTwiceIsSafe(t *testing.T) {
 
 	// when / then
 	assert.NotPanics(t, c.Close)
+}
+
+func TestWaitReturnsOnceQueuedWorkHasFinished(t *testing.T) {
+	// given
+	release := make(chan struct{})
+	backend := &mockedAgentBackend{
+		processFunc: func(_ context.Context, input string) (*agent.Response, error) {
+			<-release
+			return &agent.Response{Content: input + " done"}, nil
+		},
+	}
+	c, _ := newTestChat(t, backend)
+	c.Submit("first")
+	c.Submit("second")
+	close(release)
+
+	// when
+	c.Wait()
+
+	// then
+	lines, _ := c.Next(Cursor{})
+	assert.Equal(t, []Line{
+		{Kind: User, Text: "first"},
+		{Kind: Reply, Text: "first done"},
+		{Kind: User, Text: "second"},
+		{Kind: Reply, Text: "second done"},
+	}, lines)
+	assert.False(t, c.Busy())
+}
+
+func TestWaitReturnsAtOnceWhenIdle(t *testing.T) {
+	// given
+	c, _ := newTestChat(t, &mockedAgentBackend{})
+
+	// when / then
+	c.Wait()
 }

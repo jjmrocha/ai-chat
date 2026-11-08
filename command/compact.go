@@ -17,5 +17,5 @@ func (compactCmd) Help() string {
 }
 
 func (compactCmd) Run(ctx Context, _ string) {
-	ctx.Agent().Compact()
+	ctx.Compact()
 }

@@ -7,17 +7,11 @@ import (
 )
 
 func TestCompactCommand(t *testing.T) {
-	t.Run("calls Compact on agent", func(t *testing.T) {
+	t.Run("compacts the session and prints nothing itself", func(t *testing.T) {
 		// given
 		var compacted bool
 		ctx := &mockedContext{
-			agentFunc: func() AgentController {
-				return &mockedAgentController{
-					compactFunc: func() {
-						compacted = true
-					},
-				}
-			},
+			compactFunc: func() { compacted = true },
 		}
 
 		// when

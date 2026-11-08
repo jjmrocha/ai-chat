@@ -7,16 +7,6 @@ import (
 	"github.com/jjmrocha/ai-toolkit/mcp"
 )
 
-type mockedAgentController struct {
-	compactFunc func()
-}
-
-func (m *mockedAgentController) Compact() {
-	if m.compactFunc != nil {
-		m.compactFunc()
-	}
-}
-
 type mockedModelSwitcher struct {
 	availableModelsFunc func() []string
 	changeModelFunc     func(ctx context.Context, name string) (*llm.ModelInfo, error)
@@ -60,17 +50,16 @@ type printedLine struct {
 }
 
 type mockedContext struct {
-	ctx       context.Context
-	agentFunc func() AgentController
-	clearFunc func() error
-	printed   []printedLine
+	ctx         context.Context
+	clearFunc   func() error
+	compactFunc func()
+	printed     []printedLine
 }
 
-func (m *mockedContext) Agent() AgentController {
-	if m.agentFunc == nil {
-		return &mockedAgentController{}
+func (m *mockedContext) Compact() {
+	if m.compactFunc != nil {
+		m.compactFunc()
 	}
-	return m.agentFunc()
 }
 
 func (m *mockedContext) Info(text string) {

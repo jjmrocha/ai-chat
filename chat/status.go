@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -39,26 +38,6 @@ func (c *Chat) StatusText() string { return c.statusFmt(c.status()) }
 func (c *Chat) refreshModel() {
 	info, effort := *c.model.ModelInfo(), c.model.Effort()
 	c.mutate(func() { c.modelInfo, c.effort = info, effort })
-}
-
-type modelControl struct{ c *Chat }
-
-func (m modelControl) AvailableModels() []string { return m.c.model.AvailableModels() }
-
-func (m modelControl) ChangeModel(ctx context.Context, model string) (*llm.ModelInfo, error) {
-	info, err := m.c.model.ChangeModel(ctx, model)
-	if err == nil {
-		m.c.refreshModel()
-	}
-	return info, err
-}
-
-func (m modelControl) ChangeEffort(e llm.Effort) error {
-	err := m.c.model.ChangeEffort(e)
-	if err == nil {
-		m.c.refreshModel()
-	}
-	return err
 }
 
 func defaultStatusFormatter(info StatusInfo) string {

@@ -173,14 +173,7 @@ func (f *fakeClock) advance(d time.Duration) {
 	f.mu.Unlock()
 }
 
-func waitIdle(t *testing.T, c *Chat) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if !c.Busy() {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("chat never went idle")
+func transcript(c *Chat) []Line {
+	lines, _ := c.Next(Cursor{})
+	return lines
 }

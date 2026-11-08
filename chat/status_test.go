@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/stretchr/testify/assert"
 )
@@ -116,7 +117,23 @@ func TestStatusShowsTheModelChosenWithTheModelCommand(t *testing.T) {
 
 	// when
 	c.Submit("/model other")
-	waitIdle(t, c)
+	c.Wait()
+
+	// then
+	assert.Equal(t, "other", c.status().Model)
+}
+
+func TestStatusShowsAModelChangeMadeByAnyCommand(t *testing.T) {
+	// given
+	model := &mockedModelBackend{
+		info:   llm.ModelInfo{Name: "m1"},
+		models: []string{"m1", "other"},
+	}
+	c, _ := newTestChatWithModel(t, &mockedAgentBackend{}, model, WithCommand(command.Model(model)))
+
+	// when
+	c.Submit("/model other")
+	c.Wait()
 
 	// then
 	assert.Equal(t, "other", c.status().Model)
@@ -129,7 +146,7 @@ func TestStatusShowsTheEffortChosenWithTheEffortCommand(t *testing.T) {
 
 	// when
 	c.Submit("/effort low")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	assert.Equal(t, llm.EffortLow, c.status().Effort)
@@ -146,7 +163,7 @@ func TestStatusTextDoesNotWaitForAModelChange(t *testing.T) {
 	c, _ := newTestChatWithModel(t, &mockedAgentBackend{}, model, WithModelCommand())
 	c.Submit("/model other")
 	<-model.changing
-	defer waitIdle(t, c)
+	defer c.Wait()
 	defer close(model.release)
 
 	// when

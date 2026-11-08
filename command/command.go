@@ -2,21 +2,10 @@ package command
 
 import "context"
 
-// AgentController is the slice of the agent that commands may drive: forcing
-// compaction. Obtain one from [Context.Agent].
-type AgentController interface {
-	// Compact forces context compaction. It reports progress through the
-	// transcript rather than returning it.
-	Compact()
-}
-
 // Context is what a running command may do to the session. It is deliberately
 // narrow: a command that needs more than this is given its own collaborator at
 // construction instead.
 type Context interface {
-	// Agent returns the controller for compaction.
-	Agent() AgentController
-
 	// Info appends command output to the transcript. Pass undecorated text;
 	// the front-end styles it.
 	Info(text string)
@@ -28,6 +17,10 @@ type Context interface {
 	// Clear resets the conversation, returning the agent's error if the
 	// session could not be reset.
 	Clear() error
+
+	// Compact forces context compaction. It reports the outcome in the
+	// transcript rather than returning it.
+	Compact()
 
 	// Context is cancelled when the user cancels the running command or the
 	// session closes. Pass it to anything the command waits on, so a slow

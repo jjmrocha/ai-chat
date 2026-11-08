@@ -45,7 +45,6 @@ type Chat struct {
 	work    sync.WaitGroup
 
 	mu             sync.Mutex
-	baseCtx        context.Context
 	workCtx        context.Context
 	closed         bool
 	transcript     []Line
@@ -84,7 +83,6 @@ func newChat(name string, model modelBackend, opts ...Option) *Chat {
 	c := &Chat{
 		name:         name,
 		model:        model,
-		baseCtx:      context.Background(),
 		commands:     treemap.New[string, command.Command](strings.Compare),
 		telemetryFmt: defaultTelemetryFormatter,
 		statusFmt:    defaultStatusFormatter,
@@ -98,15 +96,6 @@ func newChat(name string, model modelBackend, opts ...Option) *Chat {
 		opt(c)
 	}
 	return c
-}
-
-// SetContext sets the context used for agent turns and for the model and
-// compaction calls the core makes on its own. Cancelling it ends the session's
-// work. Call it before the first [Chat.Submit]; ui.Run calls it for you.
-func (c *Chat) SetContext(ctx context.Context) {
-	c.mu.Lock()
-	c.baseCtx = ctx
-	c.mu.Unlock()
 }
 
 // Close ends the session: it cancels the running turn or command, discards
@@ -125,12 +114,6 @@ func (c *Chat) Close() {
 
 	c.inbox.drop()
 	c.work.Wait()
-}
-
-func (c *Chat) context() context.Context {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.baseCtx
 }
 
 func (c *Chat) register(cmd command.Command) {

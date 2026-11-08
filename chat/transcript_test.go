@@ -63,7 +63,7 @@ func TestNextReturnsACopy(t *testing.T) {
 	lines[0].Text = "changed"
 
 	// then
-	assert.Equal(t, "one", c.Transcript()[0].Text)
+	assert.Equal(t, "one", transcript(c)[0].Text)
 }
 
 func TestTranscriptStripsTerminalControlSequences(t *testing.T) {
@@ -90,7 +90,7 @@ func TestTranscriptStripsTerminalControlSequences(t *testing.T) {
 			c.append(Reply, tc.input)
 
 			// then
-			assert.Equal(t, tc.expected, c.Transcript()[0].Text)
+			assert.Equal(t, tc.expected, transcript(c)[0].Text)
 		})
 	}
 }
@@ -115,5 +115,5 @@ func TestToolResultDetailIsSanitized(t *testing.T) {
 	agentFeedback{c}.ToolReturned("tool", "ok\u009b", nil, 0)
 
 	// then
-	assert.NotContains(t, c.Transcript()[0].Detail, "\u009b")
+	assert.NotContains(t, transcript(c)[0].Detail, "\u009b")
 }

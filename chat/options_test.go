@@ -83,7 +83,7 @@ func TestWithCommandReplacesASkillCommand(t *testing.T) {
 
 	// when
 	c.Submit("/brainstorm idea")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	assert.Empty(t, backend.inputs())
@@ -159,10 +159,10 @@ func TestWithTelemetryFormatter(t *testing.T) {
 
 			// when
 			c.Submit("hi")
-			waitIdle(t, c)
+			c.Wait()
 
 			// then
-			assert.Equal(t, tc.expected, c.Transcript())
+			assert.Equal(t, tc.expected, transcript(c))
 		})
 	}
 }

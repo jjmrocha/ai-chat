@@ -28,7 +28,7 @@ func (c *Chat) Submit(text string) {
 		c.mu.Unlock()
 		return
 	}
-	ctx, started := c.inbox.push(c.baseCtx, text)
+	ctx, started := c.inbox.push(text)
 	if started {
 		c.work.Add(1)
 	}
@@ -43,6 +43,11 @@ func (c *Chat) Submit(text string) {
 // Busy reports whether a turn or command is currently running.
 func (c *Chat) Busy() bool { return c.inbox.running() }
 
+// Wait blocks until every turn and command submitted so far has finished. It
+// returns at once when the core is idle. After [Chat.Cancel] or [Chat.Close] it
+// returns once the cancelled work has stopped.
+func (c *Chat) Wait() { <-c.inbox.drained() }
+
 // Cancel stops the running turn or command and discards all queued input. A
 // turn ends with a "Cancelled." line unless its reply had already arrived; a
 // command stops once it notices its context was cancelled. Cancel
@@ -54,7 +59,7 @@ func (c *Chat) Cancel() {
 
 func (c *Chat) process(ctx context.Context, text string) {
 	defer c.work.Done()
-	for ok := true; ok; text, ctx, ok = c.inbox.next(c.context()) {
+	for ok := true; ok; text, ctx, ok = c.inbox.next() {
 		c.runItem(ctx, text)
 	}
 }
@@ -85,6 +90,7 @@ func (c *Chat) runCommand(ctx context.Context, input string) {
 	defer c.setPendingCommand("")
 
 	cmd.Run(commandContext{c}, strings.TrimSpace(args))
+	c.refreshModel()
 }
 
 func splitCommand(s string) (name, args string) {

@@ -35,7 +35,7 @@ func TestSubmitIgnoresBlankInput(t *testing.T) {
 
 			// then
 			assert.Empty(t, backend.inputs())
-			assert.Zero(t, len(c.Transcript()))
+			assert.Zero(t, len(transcript(c)))
 			assert.False(t, c.Busy())
 		})
 	}
@@ -48,7 +48,7 @@ func TestSubmitTrimsInput(t *testing.T) {
 
 	// when
 	c.Submit("  hello  ")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	assert.Equal(t, []string{"hello"}, backend.inputs())
@@ -61,10 +61,10 @@ func TestTurnAppendsUserLineWithoutGlyph(t *testing.T) {
 
 	// when
 	c.Submit("hi")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
-	lines := c.Transcript()
+	lines := transcript(c)
 	require.NotEmpty(t, lines)
 	assert.Equal(t, User, lines[0].Kind)
 	assert.Equal(t, "hi", lines[0].Text)
@@ -81,10 +81,10 @@ func TestTurnReportsAgentError(t *testing.T) {
 
 	// when
 	c.Submit("hi")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
-	lines := c.Transcript()
+	lines := transcript(c)
 	require.Len(t, lines, 2)
 	assert.Equal(t, Error, lines[1].Kind)
 	assert.Equal(t, "Error: upstream down", lines[1].Text)
@@ -101,10 +101,10 @@ func TestTurnReportsMissingResponse(t *testing.T) {
 
 	// when
 	c.Submit("hi")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
-	lines := c.Transcript()
+	lines := transcript(c)
 	require.Len(t, lines, 2)
 	assert.Equal(t, Error, lines[1].Kind)
 	assert.Equal(t, "No response received.", lines[1].Text)
@@ -128,14 +128,14 @@ func TestUnknownSlashInputIsSentToTheAgentAsTyped(t *testing.T) {
 
 			// when
 			c.Submit(tc.input)
-			waitIdle(t, c)
+			c.Wait()
 
 			// then
 			assert.Equal(t, []string{tc.input}, backend.inputs())
 			assert.Equal(t, []Line{
 				{Kind: User, Text: tc.input},
 				{Kind: Reply, Text: "reply"},
-			}, c.Transcript())
+			}, transcript(c))
 		})
 	}
 }
@@ -158,7 +158,7 @@ func TestCommandNameEndsAtAnyWhitespace(t *testing.T) {
 
 			// when
 			c.Submit(tc.input)
-			waitIdle(t, c)
+			c.Wait()
 
 			// then
 			assert.Equal(t, "hello world", cmd.args)
@@ -173,7 +173,7 @@ func TestSkillCommandWithArgumentsOnTheNextLineReachesTheAgent(t *testing.T) {
 
 	// when
 	c.Submit("/brainstorm\nsome idea")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	assert.Equal(t, []string{"/brainstorm\nsome idea"}, backend.inputs())
@@ -186,10 +186,10 @@ func TestSkillCommandIsRecordedAsAUserTurn(t *testing.T) {
 
 	// when
 	c.Submit("/brainstorm some idea")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
-	lines := c.Transcript()
+	lines := transcript(c)
 	require.Len(t, lines, 2)
 	assert.Equal(t, User, lines[0].Kind)
 	assert.Equal(t, "/brainstorm some idea", lines[0].Text)
@@ -217,7 +217,7 @@ func TestProgressIsThinkingDuringASkillCommand(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: Thinking}, c.Progress())
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestCommandsSubmittedWhileIdleDoNotRunConcurrently(t *testing.T) {
@@ -244,7 +244,7 @@ func TestCommandsSubmittedWhileIdleDoNotRunConcurrently(t *testing.T) {
 	}
 	close(release)
 	<-started
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestCommandsAndTurnsShareOneQueueInOrder(t *testing.T) {
@@ -265,7 +265,7 @@ func TestCommandsAndTurnsShareOneQueueInOrder(t *testing.T) {
 	c.Submit("first")
 	c.Submit("/mark")
 	c.Submit("second")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	mu.Lock()
@@ -291,7 +291,7 @@ func TestSlashCommandMarksChatBusy(t *testing.T) {
 	// then
 	assert.True(t, c.Busy())
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 	assert.False(t, c.Busy())
 }
 
@@ -313,7 +313,7 @@ func TestProgressNamesTheRunningCommand(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: RunningCommand, Detail: "/hold there"}, c.Progress())
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 	assert.Equal(t, Progress{}, c.Progress())
 }
 
@@ -335,7 +335,7 @@ func TestProgressReportsTheToolInFlightOverTheRunningCommand(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: RunningTool, Detail: "read()"}, c.Progress())
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestProgressIsIdleBeforeAnyInput(t *testing.T) {
@@ -372,7 +372,7 @@ func TestProgressReportsCancellingOverTheToolInFlight(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: Cancelling}, c.Progress())
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestProgressReportsHowLongTheTurnHasBeenThinking(t *testing.T) {
@@ -399,7 +399,7 @@ func TestProgressReportsHowLongTheTurnHasBeenThinking(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: Thinking, Elapsed: 3 * time.Second}, result)
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestProgressReportsHowLongTheToolHasRunNotTheTurn(t *testing.T) {
@@ -428,7 +428,7 @@ func TestProgressReportsHowLongTheToolHasRunNotTheTurn(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: RunningTool, Detail: "read()", Elapsed: 2 * time.Second}, result)
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestProgressRestartsThinkingTimeWhenTheToolReturns(t *testing.T) {
@@ -458,7 +458,7 @@ func TestProgressRestartsThinkingTimeWhenTheToolReturns(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: Thinking, Elapsed: time.Second}, result)
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestProgressReportsHowLongTheCommandHasRun(t *testing.T) {
@@ -482,7 +482,7 @@ func TestProgressReportsHowLongTheCommandHasRun(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: RunningCommand, Detail: "/hold", Elapsed: 4 * time.Second}, result)
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestProgressRestartsTheTimeForTheNextQueuedInput(t *testing.T) {
@@ -513,7 +513,7 @@ func TestProgressRestartsTheTimeForTheNextQueuedInput(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: Thinking, Elapsed: time.Second}, result)
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestProgressReportsNoElapsedTimeWhileCancelling(t *testing.T) {
@@ -541,7 +541,7 @@ func TestProgressReportsNoElapsedTimeWhileCancelling(t *testing.T) {
 	// then
 	assert.Equal(t, Progress{Stage: Cancelling}, result)
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 }
 
 func TestQueuedInputIsReportedAndDrained(t *testing.T) {
@@ -568,7 +568,7 @@ func TestQueuedInputIsReportedAndDrained(t *testing.T) {
 	// then
 	assert.True(t, c.Progress().Queued)
 	close(release)
-	waitIdle(t, c)
+	c.Wait()
 	assert.False(t, c.Progress().Queued)
 	assert.Equal(t, []string{"first", "second"}, backend.inputs())
 }
@@ -580,7 +580,7 @@ func TestExitCommandNotifiesObserver(t *testing.T) {
 
 	// when
 	c.Submit("/exit")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	assert.Equal(t, 1, obs.quitCount())
@@ -605,10 +605,10 @@ func TestClearCommand(t *testing.T) {
 
 		// when
 		c.Submit("/clear")
-		waitIdle(t, c)
+		c.Wait()
 
 		// then
-		assert.Equal(t, []Line{{Kind: Info, Text: "Context cleared."}}, c.Transcript())
+		assert.Equal(t, []Line{{Kind: Info, Text: "Context cleared."}}, transcript(c))
 		assert.Zero(t, c.status().Tokens)
 	})
 
@@ -622,13 +622,13 @@ func TestClearCommand(t *testing.T) {
 
 		// when
 		c.Submit("/clear")
-		waitIdle(t, c)
+		c.Wait()
 
 		// then
 		assert.Equal(t, []Line{
 			{Kind: Info, Text: "line"},
 			{Kind: Error, Text: "Error: locked"},
-		}, c.Transcript())
+		}, transcript(c))
 	})
 }
 
@@ -642,10 +642,10 @@ func TestContextCompactedIsReported(t *testing.T) {
 
 	// when
 	c.Submit("/compact")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
-	assert.Equal(t, []Line{{Kind: Info, Text: "Context compacted."}}, c.Transcript())
+	assert.Equal(t, []Line{{Kind: Info, Text: "Context compacted."}}, transcript(c))
 }
 
 func TestConcurrentSubmitsAllRunAndLeaveNothingQueued(t *testing.T) {
@@ -667,12 +667,12 @@ func TestConcurrentSubmitsAllRunAndLeaveNothingQueued(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	assert.Len(t, backend.inputs(), 20)
 	assert.False(t, c.Progress().Queued)
-	for _, ln := range c.Transcript() {
+	for _, ln := range transcript(c) {
 		assert.NotEqual(t, Error, ln.Kind)
 	}
 }
@@ -684,10 +684,10 @@ func TestHelpListsEveryRegisteredCommand(t *testing.T) {
 
 	// when
 	c.Submit("/help")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
-	lines := c.Transcript()
+	lines := transcript(c)
 	require.Len(t, lines, 1)
 	for _, want := range []string{"/clear", "/compact", "/effort", "/exit", "/help", "/model"} {
 		assert.Contains(t, lines[0].Text, want)
@@ -753,8 +753,8 @@ func TestCancelStopsTheRunningTurn(t *testing.T) {
 	c.Cancel()
 
 	// then
-	waitIdle(t, c)
-	lines := c.Transcript()
+	c.Wait()
+	lines := transcript(c)
 	require.NotEmpty(t, lines)
 	last := lines[len(lines)-1]
 	assert.Equal(t, Info, last.Kind)
@@ -776,34 +776,9 @@ func TestCancelDropsQueuedInput(t *testing.T) {
 	c.Cancel()
 
 	// then
-	waitIdle(t, c)
+	c.Wait()
 	assert.False(t, c.Progress().Queued)
 	assert.Equal(t, []string{"first"}, backend.inputs())
-}
-
-func TestCancelledBaseContextIsReportedAsAnError(t *testing.T) {
-	// given
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	backend := &mockedAgentBackend{
-		processFunc: func(ctx context.Context, _ string) (*agent.Response, error) {
-			cancel()
-			<-ctx.Done()
-			return nil, ctx.Err()
-		},
-	}
-	c, _ := newTestChat(t, backend)
-	c.SetContext(ctx)
-
-	// when
-	c.Submit("hello")
-
-	// then
-	waitIdle(t, c)
-	assert.Equal(t, []Line{
-		{Kind: User, Text: "hello"},
-		{Kind: Error, Text: "Error: context canceled"},
-	}, c.Transcript())
 }
 
 func TestCancelArrivingWithTheReplyKeepsTheReply(t *testing.T) {
@@ -819,9 +794,9 @@ func TestCancelArrivingWithTheReplyKeepsTheReply(t *testing.T) {
 	c.Submit("hello")
 
 	// then
-	waitIdle(t, c)
+	c.Wait()
 	var texts []string
-	for _, ln := range c.Transcript() {
+	for _, ln := range transcript(c) {
 		texts = append(texts, ln.Text)
 	}
 	assert.Contains(t, texts, "answer")
@@ -837,7 +812,7 @@ func TestCancelWhileIdleChangesNothing(t *testing.T) {
 	c.Cancel()
 
 	// then
-	assert.Empty(t, c.Transcript())
+	assert.Empty(t, transcript(c))
 	assert.NotEqual(t, Cancelling, c.Progress().Stage)
 	assert.False(t, c.Busy())
 }

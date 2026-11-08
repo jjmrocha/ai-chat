@@ -24,15 +24,6 @@ func (c *Chat) Next(cur Cursor) ([]Line, Cursor) {
 	return lines, Cursor{epoch: c.epoch, n: len(c.transcript)}
 }
 
-// Transcript returns a copy of the whole transcript. Front-ends that print
-// incrementally should prefer [Chat.Next], which copies only the part they have
-// not shown yet.
-func (c *Chat) Transcript() []Line {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return slices.Clone(c.transcript)
-}
-
 func (c *Chat) append(k Kind, text string) {
 	c.appendLine(Line{Kind: k, Text: text})
 }

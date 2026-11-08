@@ -19,7 +19,7 @@ func TestToolCallAndReturnBecomeOneLine(t *testing.T) {
 	agentFeedback{c}.ToolReturned("read", "contents", nil, 3*time.Millisecond)
 
 	// then
-	lines := c.Transcript()
+	lines := transcript(c)
 	require.Len(t, lines, 1)
 	assert.Equal(t, Activity, lines[0].Kind)
 	assert.Equal(t, `read(path="a.go")`, lines[0].Text)
@@ -35,7 +35,7 @@ func TestToolReturnedWithoutPendingCallIsDropped(t *testing.T) {
 	agentFeedback{c}.ToolReturned("read", "ok", nil, time.Millisecond)
 
 	// then
-	assert.Zero(t, len(c.Transcript()))
+	assert.Zero(t, len(transcript(c)))
 }
 
 func TestTokensUsedUpdatesStatus(t *testing.T) {
@@ -88,7 +88,7 @@ func TestSessionResumedReplaysTheConversationBeforeTheNotice(t *testing.T) {
 		{Kind: User, Text: "second question"},
 		{Kind: Reply, Text: "second answer"},
 		{Kind: Info, Text: "Session abc resumed."},
-	}, c.Transcript())
+	}, transcript(c))
 }
 
 func TestSessionResumedSkipsToolTurns(t *testing.T) {
@@ -112,7 +112,7 @@ func TestSessionResumedSkipsToolTurns(t *testing.T) {
 		{Kind: User, Text: "read it"},
 		{Kind: Reply, Text: "done"},
 		{Kind: Info, Text: "Session abc resumed."},
-	}, c.Transcript())
+	}, transcript(c))
 }
 
 func TestSessionResumedShowsTheLastResponseTokens(t *testing.T) {
@@ -144,11 +144,11 @@ func TestTurnClosesAnUnreturnedToolCall(t *testing.T) {
 
 	// when
 	c.Submit("go")
-	waitIdle(t, c)
+	c.Wait()
 
 	// then
 	var activity []Line
-	for _, ln := range c.Transcript() {
+	for _, ln := range transcript(c) {
 		if ln.Kind == Activity {
 			activity = append(activity, ln)
 		}
@@ -168,7 +168,7 @@ func TestInterimTextBecomesReplyLine(t *testing.T) {
 	agentFeedback{c}.InterimTextReceived("Let me check the config.")
 
 	// then
-	lines := c.Transcript()
+	lines := transcript(c)
 	require.Len(t, lines, 1)
 	assert.Equal(t, Reply, lines[0].Kind)
 	assert.Equal(t, "Let me check the config.", lines[0].Text)
@@ -194,7 +194,7 @@ func TestBlankInterimTextIsDropped(t *testing.T) {
 			agentFeedback{c}.InterimTextReceived(tc.content)
 
 			// then
-			assert.Zero(t, len(c.Transcript()))
+			assert.Zero(t, len(transcript(c)))
 		})
 	}
 }

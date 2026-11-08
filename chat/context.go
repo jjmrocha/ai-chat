@@ -8,9 +8,8 @@ import (
 )
 
 var (
-	_ command.Context         = commandContext{}
-	_ command.AgentController = commandContext{}
-	_ command.Quitter         = commandContext{}
+	_ command.Context = commandContext{}
+	_ command.Quitter = commandContext{}
 )
 
 type commandContext struct{ c *Chat }
@@ -18,8 +17,6 @@ type commandContext struct{ c *Chat }
 func (cc commandContext) Info(text string) { cc.c.append(Info, text) }
 
 func (cc commandContext) Error(text string) { cc.c.append(Error, text) }
-
-func (cc commandContext) Agent() command.AgentController { return cc }
 
 func (cc commandContext) Clear() error { return cc.c.clear() }
 
@@ -53,5 +50,5 @@ func (c *Chat) workContext() context.Context {
 	if c.workCtx != nil {
 		return c.workCtx
 	}
-	return c.baseCtx
+	return context.Background()
 }

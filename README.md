@@ -89,29 +89,28 @@ core := chat.New("CHAT", agt,
 - `Submit` returns at once. Turns and commands run one at a time, in the order that they arrive.
 - `Cancel` stops the running turn or command and removes the queued input.
 - `WithSubagents` shows the work of the running sub-agent in `Progress`. It replaces the feedback that is set on the manager.
-- `Status` reads the model and the effort from the agent's model client. It waits while `/model` changes the model.
-- `WithTelemetryFormatter` changes the line after each turn. `WithStatusFormatter` changes the status line.
+- `StatusText` shows the model and the effort from a copy the core keeps. The core refreshes the copy after every command, so the status line never waits while `/model` changes the model.
+- `WithTelemetryFormatter` changes the line after each turn. `WithStatusFormatter` changes the status line. A nil formatter keeps the default.
 - The core removes escape sequences and control characters from all text, but keeps newlines and tabs.
 
-To use the chat without a terminal, poll `Busy` until the turn ends:
+To use the chat without a terminal, wait for the turn to end and read the transcript:
 
 ```go
 core := chat.New("CHAT", agt)
 agt.StartSession(session)
 
 core.Submit("hello")
+core.Wait()
 
-for core.Busy() {
-	time.Sleep(10 * time.Millisecond)
-}
-
-for _, line := range core.Transcript() {
+lines, _ := core.Next(chat.Cursor{})
+for _, line := range lines {
 	fmt.Println(line.Text)
 }
 ```
 
-- `Busy` is true while a turn runs and while input waits in the queue.
-- For a long-running program, install an `Observer` with `SetObserver` instead of polling.
+- `Wait` returns once every turn and command submitted so far has finished.
+- `Next` returns the lines added since a cursor. The zero `Cursor` is the start of the transcript.
+- For a long-running program, install an `Observer` with `SetObserver` to hear about each new line.
 - Call `Close` when you are done. It cancels the running work and waits for it to stop.
 
 ### `command`

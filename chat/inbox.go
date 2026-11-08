@@ -10,16 +10,19 @@ import (
 type inbox struct {
 	mu         sync.Mutex
 	busy       bool
+	idle       chan struct{}
 	items      *queue.Queue[string]
 	cancel     context.CancelCauseFunc
 	cancelling bool
 }
 
 func newInbox() *inbox {
-	return &inbox{items: queue.New[string]()}
+	idle := make(chan struct{})
+	close(idle)
+	return &inbox{items: queue.New[string](), idle: idle}
 }
 
-func (b *inbox) push(parent context.Context, text string) (ctx context.Context, started bool) {
+func (b *inbox) push(text string) (ctx context.Context, started bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.busy {
@@ -27,23 +30,25 @@ func (b *inbox) push(parent context.Context, text string) (ctx context.Context, 
 		return nil, false
 	}
 	b.busy = true
-	return b.arm(parent), true
+	b.idle = make(chan struct{})
+	return b.arm(), true
 }
 
-func (b *inbox) next(parent context.Context) (string, context.Context, bool) {
+func (b *inbox) next() (string, context.Context, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.disarm()
 	text, ok := b.items.Dequeue()
 	if !ok {
 		b.busy = false
+		close(b.idle)
 		return "", nil, false
 	}
-	return text, b.arm(parent), true
+	return text, b.arm(), true
 }
 
-func (b *inbox) arm(parent context.Context) context.Context {
-	ctx, cancel := context.WithCancelCause(parent)
+func (b *inbox) arm() context.Context {
+	ctx, cancel := context.WithCancelCause(context.Background())
 	b.cancel = cancel
 	b.cancelling = false
 	return ctx
@@ -72,6 +77,12 @@ func (b *inbox) running() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.busy
+}
+
+func (b *inbox) drained() <-chan struct{} {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.idle
 }
 
 func (b *inbox) state() (busy, queued, cancelling bool) {
