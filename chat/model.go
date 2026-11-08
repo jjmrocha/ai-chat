@@ -19,8 +19,8 @@ type Line struct {
 
 // StatusInfo is the state a status line is built from: the active model and
 // provider, the reasoning effort, how full the context window is as a
-// percentage, and the token total of the last turn. Fields are zero when the
-// model's limits are not known yet.
+// percentage, and the token total of the last turn. ContextPercent is zero when
+// the model client reports no context size.
 type StatusInfo struct {
 	Model          string
 	Provider       llm.Provider

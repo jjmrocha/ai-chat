@@ -9,6 +9,7 @@ import (
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
+	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -611,7 +612,7 @@ func TestExitCommandNotifiesObserver(t *testing.T) {
 
 func TestQuitWithoutObserverDoesNotPanic(t *testing.T) {
 	// given
-	c := newChat("TEST")
+	c := newChat("TEST", &mockedModelBackend{})
 	c.agent = &mockedAgentBackend{}
 
 	// when / then
@@ -894,4 +895,17 @@ func TestCancelWhileIdleChangesNothing(t *testing.T) {
 	assert.Empty(t, c.Transcript())
 	assert.NotEqual(t, Cancelling, c.Progress().Stage)
 	assert.False(t, c.Busy())
+}
+
+func TestNewShowsTheModelOfTheAgent(t *testing.T) {
+	// given
+	ag, err := agent.New(agent.Config{}, newModelServer(t, answerReply))
+	require.NoError(t, err)
+
+	// when
+	result := New("TEST", ag).Status()
+
+	// then
+	assert.Equal(t, "test", result.Model)
+	assert.Equal(t, llm.ProviderOllama, result.Provider)
 }

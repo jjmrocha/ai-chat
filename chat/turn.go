@@ -22,9 +22,6 @@ func (c *Chat) recordTurn(resp *agent.Response, err error) {
 	if err == nil && resp != nil {
 		c.lastMeta = resp.Metadata
 	}
-	if c.model.info == nil {
-		c.model.fresh = false
-	}
 }
 
 func (c *Chat) reportTurn(ctx context.Context, resp *agent.Response, err error) {

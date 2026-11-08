@@ -20,7 +20,7 @@ func TestHelpAndExitAreRegisteredByDefault(t *testing.T) {
 	// given
 
 	// when
-	result := commandNames(newChat("test"))
+	result := commandNames(newChat("test", &mockedModelBackend{}))
 
 	// then
 	assert.Equal(t, []string{"exit", "help"}, result)
@@ -28,7 +28,7 @@ func TestHelpAndExitAreRegisteredByDefault(t *testing.T) {
 
 func TestWithDefaultCommands(t *testing.T) {
 	// given
-	c := newChat("test", WithDefaultCommands())
+	c := newChat("test", &mockedModelBackend{}, WithDefaultCommands())
 
 	// when
 	result := commandNames(c)
@@ -44,7 +44,7 @@ func (s stubSkills) Skills() []string { return s.names }
 
 func TestWithSkills(t *testing.T) {
 	// given
-	c := newChat("test", WithSkills(stubSkills{names: []string{"brainstorm"}}))
+	c := newChat("test", &mockedModelBackend{}, WithSkills(stubSkills{names: []string{"brainstorm"}}))
 
 	// when
 	result := commandNames(c)
@@ -55,7 +55,7 @@ func TestWithSkills(t *testing.T) {
 
 func TestWithSkillCommand(t *testing.T) {
 	// given
-	c := newChat("test", WithSkillCommand("brainstorm", "Explore an idea"))
+	c := newChat("test", &mockedModelBackend{}, WithSkillCommand("brainstorm", "Explore an idea"))
 
 	// when
 	result := commandNames(c)
@@ -66,7 +66,7 @@ func TestWithSkillCommand(t *testing.T) {
 
 func TestSkillCommandHelpIsItsDescription(t *testing.T) {
 	// given
-	c := newChat("test", WithSkillCommand("brainstorm", "Explore an idea"))
+	c := newChat("test", &mockedModelBackend{}, WithSkillCommand("brainstorm", "Explore an idea"))
 
 	// when
 	var result string
@@ -101,7 +101,7 @@ func TestWithCommandOverridesADefault(t *testing.T) {
 	replacement := stubNamedCommand{name: "help"}
 
 	// when
-	c := newChat("test", WithCommand(replacement))
+	c := newChat("test", &mockedModelBackend{}, WithCommand(replacement))
 
 	// then
 	for _, cmd := range c.Commands() {

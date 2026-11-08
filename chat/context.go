@@ -5,7 +5,6 @@ import (
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
-	"github.com/jjmrocha/ai-toolkit/llm"
 )
 
 var (
@@ -27,20 +26,6 @@ func (cc commandContext) Clear() error { return cc.c.clear() }
 func (cc commandContext) Context() context.Context { return cc.c.workContext() }
 
 func (cc commandContext) Quit() { cc.c.quit() }
-
-func (cc commandContext) ChangeModel(name string) error {
-	err := cc.c.agent.ChangeModel(name)
-	cc.c.invalidateModel()
-	return err
-}
-
-func (cc commandContext) ChangeEffort(e llm.Effort) error {
-	err := cc.c.agent.ChangeEffort(e)
-	cc.c.invalidateModel()
-	return err
-}
-
-func (cc commandContext) AvailableModels() []string { return cc.c.agent.AvailableModels() }
 
 func (cc commandContext) Compact() {
 	ctx := cc.c.workContext()

@@ -7,12 +7,19 @@ import (
 	"github.com/jjmrocha/go-algo/fn"
 )
 
-type effortCmd struct{}
+// EffortSwitcher is the model client /effort drives. *llm.LLM satisfies it.
+type EffortSwitcher interface {
+	// ChangeEffort switches the reasoning effort, returning an error for an
+	// unsupported level.
+	ChangeEffort(e llm.Effort) error
+}
+
+type effortCmd struct{ effort EffortSwitcher }
 
 // Effort returns the /effort command: with no argument it lists the reasoning
-// effort levels, otherwise it switches to the named one.
-func Effort() Command {
-	return effortCmd{}
+// effort levels, otherwise it switches effort to the named one.
+func Effort(effort EffortSwitcher) Command {
+	return effortCmd{effort: effort}
 }
 
 func (effortCmd) Name() string {
@@ -32,12 +39,12 @@ var effortLevels = fn.Map(
 	func(e llm.Effort) string { return string(e) },
 )
 
-func (effortCmd) Run(ctx Context, args string) {
+func (c effortCmd) Run(ctx Context, args string) {
 	if args == "" {
 		ctx.Info(listText("Effort levels", effortLevels))
 		return
 	}
-	if err := ctx.Agent().ChangeEffort(llm.Effort(args)); err != nil {
+	if err := c.effort.ChangeEffort(llm.Effort(args)); err != nil {
 		ctx.Error("Effort must be: " + strings.Join(effortLevels, ", "))
 		return
 	}

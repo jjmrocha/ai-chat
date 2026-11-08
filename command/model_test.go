@@ -1,27 +1,26 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestModelCommand(t *testing.T) {
 	t.Run("empty args lists available models", func(t *testing.T) {
 		// given
-		ctx := &mockedContext{
-			agentFunc: func() AgentController {
-				return &mockedAgentController{
-					availableModelsFunc: func() []string {
-						return []string{"gpt-4", "claude-3"}
-					},
-				}
+		models := &mockedModelSwitcher{
+			availableModelsFunc: func() []string {
+				return []string{"gpt-4", "claude-3"}
 			},
 		}
+		ctx := &mockedContext{}
 
 		// when
-		Model().Run(ctx, "")
+		Model(models).Run(ctx, "")
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
@@ -32,14 +31,10 @@ func TestModelCommand(t *testing.T) {
 
 	t.Run("empty args with no models available", func(t *testing.T) {
 		// given
-		ctx := &mockedContext{
-			agentFunc: func() AgentController {
-				return &mockedAgentController{}
-			},
-		}
+		ctx := &mockedContext{}
 
 		// when
-		Model().Run(ctx, "")
+		Model(&mockedModelSwitcher{}).Run(ctx, "")
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
@@ -51,19 +46,16 @@ func TestModelCommand(t *testing.T) {
 	t.Run("valid model switches and prints", func(t *testing.T) {
 		// given
 		var changed string
-		ctx := &mockedContext{
-			agentFunc: func() AgentController {
-				return &mockedAgentController{
-					changeModelFunc: func(name string) error {
-						changed = name
-						return nil
-					},
-				}
+		models := &mockedModelSwitcher{
+			changeModelFunc: func(_ context.Context, name string) (*llm.ModelInfo, error) {
+				changed = name
+				return &llm.ModelInfo{Name: name}, nil
 			},
 		}
+		ctx := &mockedContext{}
 
 		// when
-		Model().Run(ctx, "gpt-4")
+		Model(models).Run(ctx, "gpt-4")
 
 		// then
 		assert.Equal(t, "gpt-4", changed)
@@ -72,20 +64,39 @@ func TestModelCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("model error prints error", func(t *testing.T) {
+	t.Run("switch uses the command context", func(t *testing.T) {
 		// given
-		ctx := &mockedContext{
-			agentFunc: func() AgentController {
-				return &mockedAgentController{
-					changeModelFunc: func(name string) error {
-						return errors.New("unknown model")
-					},
-				}
+		type key struct{}
+		cmdCtx := context.WithValue(context.Background(), key{}, "command")
+		var used context.Context
+		models := &mockedModelSwitcher{
+			changeModelFunc: func(ctx context.Context, name string) (*llm.ModelInfo, error) {
+				used = ctx
+				return &llm.ModelInfo{Name: name}, nil
 			},
 		}
+		ctx := &mockedContext{ctx: cmdCtx}
 
 		// when
-		Model().Run(ctx, "invalid")
+		Model(models).Run(ctx, "gpt-4")
+
+		// then
+		if assert.NotNil(t, used) {
+			assert.Equal(t, "command", used.Value(key{}))
+		}
+	})
+
+	t.Run("model error prints error", func(t *testing.T) {
+		// given
+		models := &mockedModelSwitcher{
+			changeModelFunc: func(context.Context, string) (*llm.ModelInfo, error) {
+				return nil, errors.New("unknown model")
+			},
+		}
+		ctx := &mockedContext{}
+
+		// when
+		Model(models).Run(ctx, "invalid")
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {

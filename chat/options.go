@@ -17,11 +17,15 @@ func WithCommand(cmd command.Command) Option {
 
 // WithModelCommand registers /model, which lists the available models or
 // switches the active one.
-func WithModelCommand() Option { return WithCommand(command.Model()) }
+func WithModelCommand() Option {
+	return func(c *Chat) { c.register(command.Model(c.model)) }
+}
 
 // WithEffortCommand registers /effort, which lists the reasoning effort levels
 // or switches to one.
-func WithEffortCommand() Option { return WithCommand(command.Effort()) }
+func WithEffortCommand() Option {
+	return func(c *Chat) { c.register(command.Effort(c.model)) }
+}
 
 // WithCompactCommand registers /compact, which forces context compaction.
 func WithCompactCommand() Option { return WithCommand(command.Compact()) }

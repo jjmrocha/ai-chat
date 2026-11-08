@@ -1,27 +1,10 @@
 package command
 
-import (
-	"context"
+import "context"
 
-	"github.com/jjmrocha/ai-toolkit/llm"
-)
-
-// AgentController is the slice of the agent that commands may drive: switching
-// model or effort, listing models, and forcing compaction. Obtain one from
-// [Context.Agent].
+// AgentController is the slice of the agent that commands may drive: forcing
+// compaction. Obtain one from [Context.Agent].
 type AgentController interface {
-	// ChangeModel switches to the named model, which must be one of
-	// AvailableModels. It returns the agent's error on failure.
-	ChangeModel(name string) error
-
-	// ChangeEffort switches the reasoning effort, returning an error for an
-	// unsupported level.
-	ChangeEffort(e llm.Effort) error
-
-	// AvailableModels lists the models that can be switched to. The active
-	// model is always included.
-	AvailableModels() []string
-
 	// Compact forces context compaction. It reports progress through the
 	// transcript rather than returning it.
 	Compact()

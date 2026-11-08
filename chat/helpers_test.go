@@ -11,18 +11,13 @@ import (
 )
 
 type mockedAgentBackend struct {
-	mu                  sync.Mutex
-	processFunc         func(ctx context.Context, input string) (*agent.Response, error)
-	changeModelFunc     func(name string) error
-	changeEffortFunc    func(e llm.Effort) error
-	availableModelsFunc func() []string
-	modelInfoFunc       func(ctx context.Context) *agent.ModelInfo
-	compactContextFunc  func(ctx context.Context)
-	resetSessionFunc    func() error
-	messages            []llm.Message
+	mu                 sync.Mutex
+	processFunc        func(ctx context.Context, input string) (*agent.Response, error)
+	compactContextFunc func(ctx context.Context)
+	resetSessionFunc   func() error
+	messages           []llm.Message
 
-	processed     []string
-	modelInfoHits int
+	processed []string
 }
 
 func (m *mockedAgentBackend) Process(ctx context.Context, input string) (*agent.Response, error) {
@@ -34,38 +29,6 @@ func (m *mockedAgentBackend) Process(ctx context.Context, input string) (*agent.
 		return &agent.Response{Content: "reply"}, nil
 	}
 	return fn(ctx, input)
-}
-
-func (m *mockedAgentBackend) ChangeModel(name string) error {
-	if m.changeModelFunc == nil {
-		return nil
-	}
-	return m.changeModelFunc(name)
-}
-
-func (m *mockedAgentBackend) ChangeEffort(e llm.Effort) error {
-	if m.changeEffortFunc == nil {
-		return nil
-	}
-	return m.changeEffortFunc(e)
-}
-
-func (m *mockedAgentBackend) AvailableModels() []string {
-	if m.availableModelsFunc == nil {
-		return nil
-	}
-	return m.availableModelsFunc()
-}
-
-func (m *mockedAgentBackend) ModelInfo(ctx context.Context) *agent.ModelInfo {
-	m.mu.Lock()
-	m.modelInfoHits++
-	fn := m.modelInfoFunc
-	m.mu.Unlock()
-	if fn == nil {
-		return nil
-	}
-	return fn(ctx)
 }
 
 func (m *mockedAgentBackend) CompactContext(ctx context.Context) {
@@ -91,10 +54,51 @@ func (m *mockedAgentBackend) inputs() []string {
 	return append([]string(nil), m.processed...)
 }
 
-func (m *mockedAgentBackend) infoHits() int {
+type mockedModelBackend struct {
+	mu              sync.Mutex
+	info            llm.ModelInfo
+	effort          llm.Effort
+	models          []string
+	changeModelErr  error
+	changeEffortErr error
+}
+
+func (m *mockedModelBackend) ModelInfo() *llm.ModelInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.modelInfoHits
+	info := m.info
+	return &info
+}
+
+func (m *mockedModelBackend) Effort() llm.Effort {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.effort
+}
+
+func (m *mockedModelBackend) AvailableModels() []string {
+	return m.models
+}
+
+func (m *mockedModelBackend) ChangeModel(_ context.Context, model string) (*llm.ModelInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.changeModelErr != nil {
+		return nil, m.changeModelErr
+	}
+	m.info.Name = model
+	info := m.info
+	return &info, nil
+}
+
+func (m *mockedModelBackend) ChangeEffort(e llm.Effort) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.changeEffortErr != nil {
+		return m.changeEffortErr
+	}
+	m.effort = e
+	return nil
 }
 
 type mockedObserver struct {
@@ -128,7 +132,12 @@ func (m *mockedObserver) quitCount() int {
 
 func newTestChat(t *testing.T, backend *mockedAgentBackend, opts ...Option) (*Chat, *mockedObserver) {
 	t.Helper()
-	c := newChat("TEST", opts...)
+	return newTestChatWithModel(t, backend, &mockedModelBackend{}, opts...)
+}
+
+func newTestChatWithModel(t *testing.T, backend *mockedAgentBackend, model *mockedModelBackend, opts ...Option) (*Chat, *mockedObserver) {
+	t.Helper()
+	c := newChat("TEST", model, opts...)
 	c.agent = backend
 	c.now = newFakeClock().current
 	obs := &mockedObserver{}
@@ -167,24 +176,4 @@ func waitIdle(t *testing.T, c *Chat) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("chat never went idle")
-}
-
-type renderingObserver struct{ core *Chat }
-
-func (r *renderingObserver) TranscriptChanged() { r.core.Status() }
-
-func (r *renderingObserver) Quit() {}
-
-func waitStatus(t *testing.T, c *Chat, done func(StatusInfo) bool) StatusInfo {
-	t.Helper()
-	var last StatusInfo
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if last = c.Status(); done(last) {
-			return last
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatalf("status never settled, last: %+v", last)
-	return last
 }

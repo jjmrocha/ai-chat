@@ -43,18 +43,6 @@ func (f agentFeedback) ContextCompactionFailed() {
 	f.c.append(Error, "Context compaction failed; will retry after the next turn.")
 }
 
-func (f agentFeedback) ModelInfoUnavailable() {
-	c := f.c
-	c.mu.Lock()
-	reported := c.model.reported
-	c.model.reported = true
-	c.mu.Unlock()
-
-	if !reported {
-		c.append(Error, "Model info unavailable; automatic context compaction is disabled.")
-	}
-}
-
 func (f agentFeedback) SessionReset() {}
 
 func (f agentFeedback) SessionStarted() {}

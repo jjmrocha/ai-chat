@@ -36,7 +36,7 @@ func run(ctx context.Context) error {
 		Model:    "qwen3:8b",
 	}
 
-	model, err := llm.New(modelCfg)
+	model, err := llm.New(ctx, modelCfg)
 	if err != nil {
 		return err
 	}
@@ -58,6 +58,7 @@ func run(ctx context.Context) error {
 }
 ```
 
+- `/model`, `/effort` and the status line use the agent's model client, `agt.LLM()`.
 - Call `chat.New` before `StartSession`. The agent reports a resumed session only to the chat that exists when the session starts.
 - [joe](https://github.com/jjmrocha/joe), a coding agent, and [warren](https://github.com/jjmrocha/warren), a financial analyst, are built this way.
 
@@ -88,6 +89,7 @@ core := chat.New("CHAT", agt,
 - `Submit` returns at once. Turns and commands run one at a time, in the order that they arrive.
 - `Cancel` stops the running turn or command and removes the queued input.
 - `WithSubagents` shows the work of the running sub-agent in `Progress`. It replaces the feedback that is set on the manager.
+- `Status` reads the model and the effort from the agent's model client. It waits while `/model` changes the model.
 - `WithTelemetryFormatter` changes the line after each turn. `WithStatusFormatter` changes the status line.
 - The core removes escape sequences and control characters from all text, but keeps newlines and tabs.
 
@@ -146,8 +148,8 @@ core := chat.New("CHAT", agt, chat.WithCommand(pingCmd{}))
 
 - `Help` returns only the description. `/help` adds the name and aligns the columns.
 - To show arguments in `/help`, also implement `command.Argumented`. Declare `Args` on the same receiver type that you register.
-- `command.Context` gives a command the agent, the transcript, a session reset and a cancellation context.
-- If a command needs more, give it to the command when you create it. `/mcp` and `/skills` do this.
+- `command.Context` gives a command compaction, the transcript, a session reset and a cancellation context.
+- If a command needs more, give it to the command when you create it. `/model`, `/effort`, `/mcp` and `/skills` do this.
 - `Run` blocks the queue until it returns. Pass `ctx.Context()` to everything that it waits on, so `Esc` can stop it.
 - A command with the same name replaces the earlier one. This includes `/help` and `/exit`.
 - Input that starts with `/` but names no command goes to the agent as a normal message.

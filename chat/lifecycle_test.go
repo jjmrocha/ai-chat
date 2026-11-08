@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/jjmrocha/ai-chat/command"
 	"github.com/jjmrocha/ai-toolkit/agent"
@@ -139,32 +138,6 @@ func TestCloseCancelsWorkAndWaitsForIt(t *testing.T) {
 	// then
 	assert.False(t, c.Busy())
 	assert.Equal(t, []string{"first"}, backend.inputs())
-}
-
-func TestCloseCancelsAPendingModelLookup(t *testing.T) {
-	// given
-	started := make(chan bool, 1)
-	backend := &mockedAgentBackend{
-		modelInfoFunc: func(ctx context.Context) *agent.ModelInfo {
-			started <- true
-			<-ctx.Done()
-			return nil
-		},
-	}
-	c, _ := newTestChat(t, backend)
-	c.Status()
-	<-started
-
-	// when
-	done := make(chan struct{})
-	go func() { c.Close(); close(done) }()
-
-	// then
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Close did not return")
-	}
 }
 
 func TestSubmitAfterCloseIsIgnored(t *testing.T) {

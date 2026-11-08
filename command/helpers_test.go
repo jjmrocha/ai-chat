@@ -8,37 +8,43 @@ import (
 )
 
 type mockedAgentController struct {
-	changeModelFunc     func(name string) error
-	changeEffortFunc    func(e llm.Effort) error
-	availableModelsFunc func() []string
-	compactFunc         func()
-}
-
-func (m *mockedAgentController) ChangeModel(name string) error {
-	if m.changeModelFunc == nil {
-		return nil
-	}
-	return m.changeModelFunc(name)
-}
-
-func (m *mockedAgentController) ChangeEffort(e llm.Effort) error {
-	if m.changeEffortFunc == nil {
-		return nil
-	}
-	return m.changeEffortFunc(e)
-}
-
-func (m *mockedAgentController) AvailableModels() []string {
-	if m.availableModelsFunc == nil {
-		return nil
-	}
-	return m.availableModelsFunc()
+	compactFunc func()
 }
 
 func (m *mockedAgentController) Compact() {
 	if m.compactFunc != nil {
 		m.compactFunc()
 	}
+}
+
+type mockedModelSwitcher struct {
+	availableModelsFunc func() []string
+	changeModelFunc     func(ctx context.Context, name string) (*llm.ModelInfo, error)
+}
+
+func (m *mockedModelSwitcher) AvailableModels() []string {
+	if m.availableModelsFunc == nil {
+		return nil
+	}
+	return m.availableModelsFunc()
+}
+
+func (m *mockedModelSwitcher) ChangeModel(ctx context.Context, name string) (*llm.ModelInfo, error) {
+	if m.changeModelFunc == nil {
+		return &llm.ModelInfo{Name: name}, nil
+	}
+	return m.changeModelFunc(ctx, name)
+}
+
+type mockedEffortSwitcher struct {
+	changeEffortFunc func(e llm.Effort) error
+}
+
+func (m *mockedEffortSwitcher) ChangeEffort(e llm.Effort) error {
+	if m.changeEffortFunc == nil {
+		return nil
+	}
+	return m.changeEffortFunc(e)
 }
 
 type stream int

@@ -13,7 +13,7 @@ func TestEffortCommand(t *testing.T) {
 		ctx := &mockedContext{}
 
 		// when
-		Effort().Run(ctx, "")
+		Effort(&mockedEffortSwitcher{}).Run(ctx, "")
 
 		// then
 		if assert.Len(t, ctx.printed, 1) {
@@ -28,19 +28,16 @@ func TestEffortCommand(t *testing.T) {
 			t.Run(level, func(t *testing.T) {
 				// given
 				var changed llm.Effort
-				ctx := &mockedContext{
-					agentFunc: func() AgentController {
-						return &mockedAgentController{
-							changeEffortFunc: func(e llm.Effort) error {
-								changed = e
-								return nil
-							},
-						}
+				effort := &mockedEffortSwitcher{
+					changeEffortFunc: func(e llm.Effort) error {
+						changed = e
+						return nil
 					},
 				}
+				ctx := &mockedContext{}
 
 				// when
-				Effort().Run(ctx, level)
+				Effort(effort).Run(ctx, level)
 
 				// then
 				assert.Equal(t, llm.Effort(level), changed)
@@ -54,19 +51,16 @@ func TestEffortCommand(t *testing.T) {
 	t.Run("rejected effort prints error", func(t *testing.T) {
 		// given
 		var changed llm.Effort
-		ctx := &mockedContext{
-			agentFunc: func() AgentController {
-				return &mockedAgentController{
-					changeEffortFunc: func(e llm.Effort) error {
-						changed = e
-						return llm.ErrInvalidEffort
-					},
-				}
+		effort := &mockedEffortSwitcher{
+			changeEffortFunc: func(e llm.Effort) error {
+				changed = e
+				return llm.ErrInvalidEffort
 			},
 		}
+		ctx := &mockedContext{}
 
 		// when
-		Effort().Run(ctx, "extreme")
+		Effort(effort).Run(ctx, "extreme")
 
 		// then
 		assert.Equal(t, llm.Effort("extreme"), changed, "the level is delegated, not validated locally")

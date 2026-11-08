@@ -14,13 +14,16 @@ import (
 
 type agentBackend interface {
 	Process(ctx context.Context, input string) (*agent.Response, error)
-	ChangeModel(name string) error
-	ChangeEffort(e llm.Effort) error
-	AvailableModels() []string
-	ModelInfo(ctx context.Context) *agent.ModelInfo
 	CompactContext(ctx context.Context)
 	ResetSession() error
 	Messages() []llm.Message
+}
+
+type modelBackend interface {
+	command.ModelSwitcher
+	command.EffortSwitcher
+	ModelInfo() *llm.ModelInfo
+	Effort() llm.Effort
 }
 
 // Chat is the headless conversation core. Create one with [New] and hand it to
@@ -30,6 +33,7 @@ type agentBackend interface {
 type Chat struct {
 	name  string
 	agent agentBackend
+	model modelBackend
 
 	commands     *treemap.Map[string, command.Command]
 	telemetryFmt TelemetryFormatter
@@ -52,10 +56,11 @@ type Chat struct {
 	stageStart     time.Time
 	subagent       subagentState
 	lastMeta       agent.Metadata
-	model          modelState
 }
 
-// New creates a Chat named name that drives ag, applying opts in order.
+// New creates a Chat named name that drives ag, applying opts in order. /model,
+// /effort and [Chat.Status] use ag's model client, ag.LLM(), to switch and show
+// the model and effort ag runs on.
 //
 // The name appears in the front-end's title bar and may be empty. The /help and
 // /exit commands are always registered; every other command comes from an
@@ -67,15 +72,16 @@ type Chat struct {
 // resumed conversation only to the feedback receiver installed when the
 // session starts, and only then does the Chat replay it into the transcript.
 func New(name string, ag *agent.Agent, opts ...Option) *Chat {
-	c := newChat(name, opts...)
+	c := newChat(name, ag.LLM(), opts...)
 	c.agent = ag
 	ag.SetFeedback(agentFeedback{c})
 	return c
 }
 
-func newChat(name string, opts ...Option) *Chat {
+func newChat(name string, model modelBackend, opts ...Option) *Chat {
 	c := &Chat{
 		name:         name,
+		model:        model,
 		baseCtx:      context.Background(),
 		commands:     treemap.New[string, command.Command](strings.Compare),
 		telemetryFmt: defaultTelemetryFormatter,
@@ -100,10 +106,9 @@ func (c *Chat) SetContext(ctx context.Context) {
 	c.mu.Unlock()
 }
 
-// Close ends the session: it cancels the running turn or command and any
-// model lookup, discards queued input, silences the observer and waits for
-// that work to return. The transcript stays readable; [Chat.Submit] does
-// nothing afterwards. Close is safe to call more than once; ui.Run calls it for
+// Close ends the session: it cancels the running turn or command, discards
+// queued input, silences the observer and waits for that work to return. The
+// transcript stays readable; [Chat.Submit] does nothing afterwards. Close is safe to call more than once; ui.Run calls it for
 // you when the user quits.
 func (c *Chat) Close() {
 	c.mu.Lock()
@@ -113,13 +118,9 @@ func (c *Chat) Close() {
 	}
 	c.closed = true
 	c.observer = nil
-	stopLookup := c.model.cancel
 	c.mu.Unlock()
 
 	c.inbox.drop()
-	if stopLookup != nil {
-		stopLookup()
-	}
 	c.work.Wait()
 }
 

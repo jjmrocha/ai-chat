@@ -53,7 +53,7 @@ func newModelServer(t *testing.T, replies ...string) *llm.LLM {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := llm.New(llm.Config{Provider: llm.ProviderOllama, Model: "test", BaseURL: server.URL})
+	model, err := llm.New(context.Background(), llm.Config{Provider: llm.ProviderOllama, Model: "test", BaseURL: server.URL})
 	require.NoError(t, err)
 	return model
 }
