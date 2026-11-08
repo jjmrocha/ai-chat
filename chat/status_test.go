@@ -2,6 +2,7 @@ package chat
 
 import (
 	"testing"
+	"time"
 
 	"github.com/jjmrocha/ai-toolkit/llm"
 	"github.com/stretchr/testify/assert"
@@ -49,7 +50,7 @@ func TestDefaultStatusFormatter(t *testing.T) {
 		result := defaultStatusFormatter(info)
 
 		// then
-		assert.NotContains(t, result, "off")
+		assert.Equal(t, "claude-3 · ctx: 50% · tokens: 500", result)
 	})
 
 	t.Run("unknown provider", func(t *testing.T) {
@@ -63,7 +64,7 @@ func TestDefaultStatusFormatter(t *testing.T) {
 		result := defaultStatusFormatter(info)
 
 		// then
-		assert.NotContains(t, result, "()")
+		assert.Equal(t, "my-model · low · ctx: 0% · tokens: 0", result)
 	})
 }
 
@@ -81,7 +82,7 @@ func TestStatusUsesModelInfo(t *testing.T) {
 	agentFeedback{c}.TokensUsed(250, 0)
 
 	// when
-	result := c.Status()
+	result := c.status()
 
 	// then
 	assert.Equal(t, "m1", result.Model)
@@ -98,7 +99,7 @@ func TestStatusShowsZeroContextPercentWithoutAContextSize(t *testing.T) {
 	agentFeedback{c}.TokensUsed(250, 0)
 
 	// when
-	result := c.Status()
+	result := c.status()
 
 	// then
 	assert.Equal(t, "m1", result.Model)
@@ -118,7 +119,7 @@ func TestStatusShowsTheModelChosenWithTheModelCommand(t *testing.T) {
 	waitIdle(t, c)
 
 	// then
-	assert.Equal(t, "other", c.Status().Model)
+	assert.Equal(t, "other", c.status().Model)
 }
 
 func TestStatusShowsTheEffortChosenWithTheEffortCommand(t *testing.T) {
@@ -131,7 +132,34 @@ func TestStatusShowsTheEffortChosenWithTheEffortCommand(t *testing.T) {
 	waitIdle(t, c)
 
 	// then
-	assert.Equal(t, llm.EffortLow, c.Status().Effort)
+	assert.Equal(t, llm.EffortLow, c.status().Effort)
+}
+
+func TestStatusTextDoesNotWaitForAModelChange(t *testing.T) {
+	// given
+	model := &mockedModelBackend{
+		info:     llm.ModelInfo{Name: "m1"},
+		models:   []string{"m1", "other"},
+		changing: make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	c, _ := newTestChatWithModel(t, &mockedAgentBackend{}, model, WithModelCommand())
+	c.Submit("/model other")
+	<-model.changing
+	defer waitIdle(t, c)
+	defer close(model.release)
+
+	// when
+	result := make(chan string, 1)
+	go func() { result <- c.StatusText() }()
+
+	// then
+	select {
+	case text := <-result:
+		assert.Equal(t, "m1 · ctx: 0% · tokens: 0", text)
+	case <-time.After(time.Second):
+		t.Fatal("StatusText waited for the model change to finish")
+	}
 }
 
 func TestStatusStripsControlSequencesFromTheModelName(t *testing.T) {
@@ -140,7 +168,7 @@ func TestStatusStripsControlSequencesFromTheModelName(t *testing.T) {
 	c, _ := newTestChatWithModel(t, &mockedAgentBackend{}, model)
 
 	// when
-	result := c.Status()
+	result := c.status()
 
 	// then
 	assert.Equal(t, "mone", result.Model)

@@ -15,8 +15,11 @@ func TestFormatTokens(t *testing.T) {
 		expected string
 	}{
 		{name: "under 1K", input: 500, expected: "500"},
+		{name: "just under 1K", input: 999, expected: "999"},
 		{name: "exactly 1K", input: 1000, expected: "1K"},
 		{name: "1.5K", input: 1500, expected: "1.50K"},
+		{name: "largest count shown in K", input: 999_994, expected: "999.99K"},
+		{name: "count that rounds up to 1M", input: 999_995, expected: "1.00M"},
 		{name: "exactly 1M", input: 1000000, expected: "1M"},
 		{name: "2.5M", input: 2500000, expected: "2.50M"},
 	}
@@ -84,6 +87,32 @@ func TestTruncateNeverSplitsARune(t *testing.T) {
 			assert.True(t, utf8.ValidString(result), "produced invalid UTF-8: %q", result)
 			assert.True(t, strings.HasSuffix(result, "…"))
 			assert.True(t, strings.HasPrefix(tc.input, strings.TrimSuffix(result, "…")))
+		})
+	}
+}
+
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    int
+		expected string
+	}{
+		{name: "bytes", input: 1023, expected: "<1023 B>"},
+		{name: "exactly 1 KB", input: 1024, expected: "<1.0 KB>"},
+		{name: "kilobytes", input: 1536, expected: "<1.5 KB>"},
+		{name: "exactly 1 MB", input: 1 << 20, expected: "<1.0 MB>"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			input := tc.input
+
+			// when
+			result := formatBytes(input)
+
+			// then
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }

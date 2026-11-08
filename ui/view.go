@@ -70,22 +70,36 @@ func (m model) thinkingLine() string {
 	if !m.thinking {
 		return ""
 	}
-	return m.spinner.View() + m.styles.footer.Render(" "+m.thinkingLabel())
+	spin := m.spinner.View()
+	room := m.width - lipgloss.Width(spin) - 1
+	return spin + m.styles.footer.Render(" "+m.thinkingLabel(room))
 }
 
-func (m model) thinkingLabel() string {
+func (m model) thinkingLabel(width int) string {
 	p := m.core.Progress()
-	elapsed := format.Duration(p.Elapsed)
+	elapsed := " · " + format.Duration(p.Elapsed)
 	switch p.Stage {
 	case chat.Cancelling:
 		return "Cancelling…"
 	case chat.RunningTool:
-		return p.Detail + " · " + elapsed
+		return fitBefore(oneLine(p.Detail), elapsed, width)
 	case chat.RunningCommand:
-		return "Waiting for " + p.Detail + " · " + elapsed
+		return fitBefore("Waiting for "+oneLine(p.Detail), elapsed, width)
 	default:
-		return "Thinking for " + elapsed
+		return "Thinking for " + format.Duration(p.Elapsed)
 	}
+}
+
+func oneLine(s string) string {
+	head, _, more := strings.Cut(s, "\n")
+	if more {
+		return head + "…"
+	}
+	return head
+}
+
+func fitBefore(text, suffix string, width int) string {
+	return ansi.Truncate(text, max(width-ansi.StringWidth(suffix), 0), "…") + suffix
 }
 
 func (m model) subagentLine() string {

@@ -18,13 +18,13 @@ func WithCommand(cmd command.Command) Option {
 // WithModelCommand registers /model, which lists the available models or
 // switches the active one.
 func WithModelCommand() Option {
-	return func(c *Chat) { c.register(command.Model(c.model)) }
+	return func(c *Chat) { c.register(command.Model(modelControl{c})) }
 }
 
 // WithEffortCommand registers /effort, which lists the reasoning effort levels
 // or switches to one.
 func WithEffortCommand() Option {
-	return func(c *Chat) { c.register(command.Effort(c.model)) }
+	return func(c *Chat) { c.register(command.Effort(modelControl{c})) }
 }
 
 // WithCompactCommand registers /compact, which forces context compaction.
@@ -80,13 +80,22 @@ func WithDefaultCommands() Option {
 }
 
 // WithTelemetryFormatter replaces the formatter that renders the per-turn
-// telemetry line. Returning an empty string suppresses the line.
+// telemetry line. Returning an empty string suppresses the line. A nil f keeps
+// the default formatter.
 func WithTelemetryFormatter(f TelemetryFormatter) Option {
-	return func(c *Chat) { c.telemetryFmt = f }
+	return func(c *Chat) {
+		if f != nil {
+			c.telemetryFmt = f
+		}
+	}
 }
 
 // WithStatusFormatter replaces the formatter that renders the status line a
-// front-end shows below the input.
+// front-end shows below the input. A nil f keeps the default formatter.
 func WithStatusFormatter(f StatusFormatter) Option {
-	return func(c *Chat) { c.statusFmt = f }
+	return func(c *Chat) {
+		if f != nil {
+			c.statusFmt = f
+		}
+	}
 }

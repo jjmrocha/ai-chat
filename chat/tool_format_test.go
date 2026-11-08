@@ -145,8 +145,8 @@ func TestFormatToolResult(t *testing.T) {
 			expected: "✗ refused [2Jnow · 300ms",
 		},
 		{
-			name:     "marks a call that never returned",
-			expected: "(no result)",
+			name:     "marks an empty result even when no time was measured",
+			expected: "(empty)",
 		},
 	}
 

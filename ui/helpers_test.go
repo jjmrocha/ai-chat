@@ -25,9 +25,8 @@ type mockedChatCore struct {
 	submitFunc     func(text string)
 	commandsFunc   func() []command.Command
 
-	busy      atomic.Bool
-	cancels   atomic.Int32
-	nextCalls atomic.Int32
+	busy    atomic.Bool
+	cancels atomic.Int32
 }
 
 func (m *mockedChatCore) Name() string {
@@ -38,7 +37,6 @@ func (m *mockedChatCore) Name() string {
 }
 
 func (m *mockedChatCore) Next(cur chat.Cursor) ([]chat.Line, chat.Cursor) {
-	m.nextCalls.Add(1)
 	if m.nextFunc == nil {
 		return nil, cur
 	}

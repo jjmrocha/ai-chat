@@ -42,23 +42,28 @@ func TestInputHistoryRecall(t *testing.T) {
 		// given
 		m := sized(t, &mockedChatCore{}, 80, 24)
 
-		// when
 		m.remember("   ")
 
+		// when
+		result := m.recallOlder()
+
 		// then
-		assert.Empty(t, m.history.entries)
+		assert.False(t, result)
 	})
 
 	t.Run("consecutive duplicates are collapsed", func(t *testing.T) {
 		// given
 		m := sized(t, &mockedChatCore{}, 80, 24)
 
+		m.remember("same")
+		m.remember("same")
+		require.True(t, m.recallOlder())
+
 		// when
-		m.remember("same")
-		m.remember("same")
+		result := m.recallOlder()
 
 		// then
-		assert.Len(t, m.history.entries, 1)
+		assert.False(t, result, "the duplicate was remembered twice")
 	})
 
 	t.Run("returning to the newest restores the draft", func(t *testing.T) {

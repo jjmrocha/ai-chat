@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,11 +31,10 @@ func TestIdleTickStopsTheChain(t *testing.T) {
 	m := sized(t, core, 80, 24)
 
 	// when
-	next, cmd := m.Update(spinner.TickMsg{ID: m.spinner.ID()})
+	_, cmd := m.Update(spinner.TickMsg{ID: m.spinner.ID()})
 
 	// then
 	assert.Nil(t, cmd, "idle tick re-armed the spinner")
-	assert.False(t, next.(model).spinning)
 }
 
 func TestBusyArmsTheSpinnerOnce(t *testing.T) {
@@ -42,18 +42,14 @@ func TestBusyArmsTheSpinnerOnce(t *testing.T) {
 	core := &mockedChatCore{}
 	m := sized(t, core, 80, 24)
 	core.busy.Store(true)
+	next, first := m.Update(refreshMsg{})
+	require.NotNil(t, first, "the first busy event did not arm the spinner")
 
 	// when
-	next, cmd := m.Update(refreshMsg{})
+	_, second := next.Update(refreshMsg{})
 
 	// then
-	m = next.(model)
-	assert.True(t, m.spinning)
-	assert.NotNil(t, cmd)
-
-	// a second event while already spinning must not arm a second chain
-	next, _ = m.Update(refreshMsg{})
-	assert.True(t, next.(model).spinning)
+	assert.Nil(t, second, "a second busy event armed another spinner chain")
 }
 
 func TestBusyTickKeepsTheChainAlive(t *testing.T) {
@@ -80,32 +76,29 @@ func TestSpinnerRestartsOnASecondBusyPeriod(t *testing.T) {
 	m = next.(model)
 
 	core.busy.Store(false)
-	next, _ = m.Update(spinner.TickMsg{ID: m.spinner.ID()})
+	next, idleTick := m.Update(spinner.TickMsg{ID: m.spinner.ID()})
 	m = next.(model)
-	require.False(t, m.spinning)
+	require.Nil(t, idleTick, "the spinner kept running while idle")
 
 	// when
 	core.busy.Store(true)
-	next, cmd := m.Update(refreshMsg{})
+	_, cmd := m.Update(refreshMsg{})
 
 	// then
-	assert.True(t, next.(model).spinning)
-	assert.NotNil(t, cmd)
+	assert.NotNil(t, cmd, "the second busy period did not restart the spinner")
 }
 
-func TestResizeRecomputesTheCachedChrome(t *testing.T) {
+func TestResizeRedrawsTheTitleBarAtTheNewWidth(t *testing.T) {
 	// given
 	m := sized(t, &mockedChatCore{}, 40, 24)
-	require.Len(t, []rune(m.hrule), 40)
-	first := m.titleBar
 
 	// when
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 
 	// then
-	m = next.(model)
-	assert.Len(t, []rune(m.hrule), 100)
-	assert.NotEqual(t, first, m.titleBar)
+	titleBar := liveLines(next.(model))[3]
+	assert.Equal(t, 100, lipgloss.Width(titleBar))
+	assert.Contains(t, titleBar, "TEST")
 }
 
 func TestShiftEnterInsertsANewlineInsteadOfSubmitting(t *testing.T) {

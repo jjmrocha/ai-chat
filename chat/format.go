@@ -9,9 +9,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// roundsToMega is the smallest count that two decimals in K would show as
+// "1000.00K".
+const roundsToMega = 999_995
+
 func formatTokens(tokens int) string {
 	switch {
-	case tokens >= 1_000_000:
+	case tokens >= roundsToMega:
 		return scaleSuffix(tokens, 1_000_000, "M")
 	case tokens >= 1_000:
 		return scaleSuffix(tokens, 1_000, "K")

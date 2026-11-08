@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jjmrocha/ai-toolkit/mcp"
 	"github.com/jjmrocha/go-algo/fn"
@@ -46,9 +47,10 @@ func (mcpCmd) Args() string {
 }
 
 func (c mcpCmd) Run(ctx Context, args string) {
-	action, name, _ := strings.Cut(args, " ")
-	action = strings.TrimSpace(action)
-	name = strings.TrimSpace(name)
+	action, name := args, ""
+	if i := strings.IndexFunc(args, unicode.IsSpace); i >= 0 {
+		action, name = args[:i], strings.TrimSpace(args[i:])
+	}
 
 	switch action {
 	case "":

@@ -47,7 +47,7 @@ func TestTokensUsedUpdatesStatus(t *testing.T) {
 	agentFeedback{c}.TokensUsed(120, 0)
 
 	// then
-	assert.Equal(t, 120, c.Status().Tokens)
+	assert.Equal(t, 120, c.status().Tokens)
 	obs.mu.Lock()
 	changes := obs.changes
 	obs.mu.Unlock()
@@ -133,7 +133,7 @@ func TestSessionResumedShowsTheLastResponseTokens(t *testing.T) {
 	agentFeedback{c}.SessionResumed("abc")
 
 	// then
-	assert.Equal(t, 250, c.Status().Tokens)
+	assert.Equal(t, 250, c.status().Tokens)
 }
 
 func TestTurnClosesAnUnreturnedToolCall(t *testing.T) {

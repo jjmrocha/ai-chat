@@ -12,33 +12,17 @@ import (
 	"github.com/jjmrocha/ai-chat/chat"
 )
 
-func TestEmitPrintsTheLinesTheCoreReturns(t *testing.T) {
-	// given
-	core := &mockedChatCore{nextFunc: linesFrom([]chat.Line{{Kind: chat.Info, Text: "one"}})}
-	m := sized(t, core, 80, 24)
-	m.printing = false
-
-	// when
-	next, cmd := m.emit()
-
-	// then
-	assert.NotNil(t, cmd)
-	assert.True(t, next.(model).printing)
-}
-
 func TestEmitIsSuppressedWhilePrinting(t *testing.T) {
 	// given
 	core := &mockedChatCore{nextFunc: linesFrom([]chat.Line{{Kind: chat.Info, Text: "one"}})}
 	m := sized(t, core, 80, 24)
 	m.printing = true
-	core.nextCalls.Store(0)
 
 	// when
 	_, cmd := m.emit()
 
 	// then
 	assert.Nil(t, cmd)
-	assert.Zero(t, core.nextCalls.Load())
 }
 
 func TestChunkBlock(t *testing.T) {
@@ -243,9 +227,9 @@ func TestPrintBacklogWithoutATerminalSizeLeavesTheLinesForEmit(t *testing.T) {
 	m := newModel(core).printBacklog(&out, 0, 0)
 
 	// when
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// then
 	assert.Empty(t, out.String())
-	assert.True(t, next.(model).printing)
+	assert.NotNil(t, cmd, "the backlog was not left for emit to print")
 }

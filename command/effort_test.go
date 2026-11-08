@@ -22,29 +22,24 @@ func TestEffortCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("valid effort levels", func(t *testing.T) {
-		levels := []string{"low"}
-		for _, level := range levels {
-			t.Run(level, func(t *testing.T) {
-				// given
-				var changed llm.Effort
-				effort := &mockedEffortSwitcher{
-					changeEffortFunc: func(e llm.Effort) error {
-						changed = e
-						return nil
-					},
-				}
-				ctx := &mockedContext{}
+	t.Run("valid effort level switches and prints", func(t *testing.T) {
+		// given
+		var changed llm.Effort
+		effort := &mockedEffortSwitcher{
+			changeEffortFunc: func(e llm.Effort) error {
+				changed = e
+				return nil
+			},
+		}
+		ctx := &mockedContext{}
 
-				// when
-				Effort(effort).Run(ctx, level)
+		// when
+		Effort(effort).Run(ctx, "low")
 
-				// then
-				assert.Equal(t, llm.Effort(level), changed)
-				if assert.Len(t, ctx.printed, 1) {
-					assert.Equal(t, "Effort: "+level, ctx.printed[0].text)
-				}
-			})
+		// then
+		assert.Equal(t, llm.EffortLow, changed)
+		if assert.Len(t, ctx.printed, 1) {
+			assert.Equal(t, "Effort: low", ctx.printed[0].text)
 		}
 	})
 

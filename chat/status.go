@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -11,15 +12,9 @@ import (
 // Install one with [WithStatusFormatter].
 type StatusFormatter func(StatusInfo) string
 
-// Status returns the current model, effort and context usage. It reads the
-// model and effort from the agent's model client, so it waits while a model
-// change is in progress.
-func (c *Chat) Status() StatusInfo {
-	mi := c.model.ModelInfo()
-	effort := c.model.Effort()
-
+func (c *Chat) status() StatusInfo {
 	c.mu.Lock()
-	tokens := c.lastMeta.TotalTokens
+	mi, effort, tokens := c.modelInfo, c.effort, c.lastMeta.TotalTokens
 	c.mu.Unlock()
 
 	info := StatusInfo{
@@ -34,8 +29,37 @@ func (c *Chat) Status() StatusInfo {
 	return info
 }
 
-// StatusText returns [Chat.Status] rendered by the status formatter.
-func (c *Chat) StatusText() string { return c.statusFmt(c.Status()) }
+// StatusText returns the status line: the active model and provider, the
+// reasoning effort and how much of the context window the last turn used,
+// rendered by the status formatter. It never waits on the model client, not
+// even while /model is switching models, so a front-end may call it on every
+// frame.
+func (c *Chat) StatusText() string { return c.statusFmt(c.status()) }
+
+func (c *Chat) refreshModel() {
+	info, effort := *c.model.ModelInfo(), c.model.Effort()
+	c.mutate(func() { c.modelInfo, c.effort = info, effort })
+}
+
+type modelControl struct{ c *Chat }
+
+func (m modelControl) AvailableModels() []string { return m.c.model.AvailableModels() }
+
+func (m modelControl) ChangeModel(ctx context.Context, model string) (*llm.ModelInfo, error) {
+	info, err := m.c.model.ChangeModel(ctx, model)
+	if err == nil {
+		m.c.refreshModel()
+	}
+	return info, err
+}
+
+func (m modelControl) ChangeEffort(e llm.Effort) error {
+	err := m.c.model.ChangeEffort(e)
+	if err == nil {
+		m.c.refreshModel()
+	}
+	return err
+}
 
 func defaultStatusFormatter(info StatusInfo) string {
 	name := info.Model

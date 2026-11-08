@@ -91,6 +91,24 @@ func TestMCPCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("action and name may be separated by any whitespace", func(t *testing.T) {
+		// given
+		var started string
+		ctx := &mockedContext{}
+		cmd := MCP(&mockedMCPController{
+			startFunc: func(_ context.Context, name string) error {
+				started = name
+				return nil
+			},
+		})
+
+		// when
+		cmd.Run(ctx, "on\tmy-server")
+
+		// then
+		assert.Equal(t, "my-server", started)
+	})
+
 	t.Run("start with no name and single server resolves", func(t *testing.T) {
 		// given
 		var started string
@@ -125,6 +143,7 @@ func TestMCPCommand(t *testing.T) {
 		// then
 		if assert.Len(t, ctx.printed, 1) {
 			assert.Equal(t, errorStream, ctx.printed[0].kind)
+			assert.Equal(t, "Specify an MCP name: /mcp on <name>", ctx.printed[0].text)
 		}
 	})
 
@@ -174,7 +193,7 @@ func TestMCPStartRunsUnderTheCommandContextWithADeadline(t *testing.T) {
 			return nil
 		},
 	}
-	ctx := &mockedContext{ctx: context.WithValue(context.Background(), ctxKey{}, "cmd")}
+	ctx := &mockedContext{ctx: context.WithValue(t.Context(), ctxKey{}, "cmd")}
 
 	// when
 	MCP(mgr).Run(ctx, "on srv")

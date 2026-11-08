@@ -40,7 +40,7 @@ func TestTitleBarFallsBackToARuleWhenUnnamed(t *testing.T) {
 	m := sized(t, core, 20, 24)
 
 	// then
-	assert.Equal(t, m.styles.headerName.Render(m.hrule), m.titleBar)
+	assert.Equal(t, strings.Repeat("─", 20), liveLines(m)[3])
 }
 
 func TestPlaceholderReflectsQueueState(t *testing.T) {
@@ -68,41 +68,7 @@ func TestPlaceholderReflectsQueueState(t *testing.T) {
 	}
 }
 
-func TestThinkingLineShowsThePendingTool(t *testing.T) {
-	// given
-	core := &mockedChatCore{progressFunc: func() chat.Progress {
-		return chat.Progress{Stage: chat.RunningTool, Detail: "read(a.go)"}
-	}}
-	m := sized(t, core, 80, 24)
-	core.busy.Store(true)
-	next, _ := m.Update(refreshMsg{})
-
-	// when
-	result := next.(model).thinkingLine()
-
-	// then
-	assert.Contains(t, result, "read(a.go)")
-	assert.NotContains(t, result, "Thinking for")
-}
-
-func TestThinkingLineShowsTheRunningCommand(t *testing.T) {
-	// given
-	core := &mockedChatCore{progressFunc: func() chat.Progress {
-		return chat.Progress{Stage: chat.RunningCommand, Detail: "/mcp on yfinance-mcp"}
-	}}
-	m := sized(t, core, 80, 24)
-	core.busy.Store(true)
-	next, _ := m.Update(refreshMsg{})
-
-	// when
-	result := next.(model).thinkingLine()
-
-	// then
-	assert.Contains(t, result, "Waiting for /mcp on yfinance-mcp")
-	assert.NotContains(t, result, "Thinking for")
-}
-
-func TestThinkingLineShowsHowLongTheStageHasRun(t *testing.T) {
+func TestThinkingLineShowsTheStageAndHowLongItHasRun(t *testing.T) {
 	tests := []struct {
 		name     string
 		progress chat.Progress
@@ -133,12 +99,52 @@ func TestThinkingLineShowsHowLongTheStageHasRun(t *testing.T) {
 			m := sized(t, core, 80, 24)
 			core.busy.Store(true)
 			next, _ := m.Update(refreshMsg{})
+			m = next.(model)
 
 			// when
-			result := ansi.Strip(next.(model).thinkingLine())
+			result := ansi.Strip(m.thinkingLine())
 
 			// then
-			assert.Contains(t, result, tc.expected)
+			label := strings.TrimSpace(strings.TrimPrefix(result, ansi.Strip(m.spinner.View())))
+			assert.Equal(t, tc.expected, label)
+		})
+	}
+}
+
+func TestThinkingLineStaysOnOneRow(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress chat.Progress
+		expected string
+	}{
+		{
+			name:     "command typed over two lines shows only its first line",
+			progress: chat.Progress{Stage: chat.RunningCommand, Detail: "/echo\nhello world", Elapsed: 4 * time.Second},
+			expected: "Waiting for /echo… · 4s",
+		},
+		{
+			name:     "long tool call is cut so the elapsed time stays visible",
+			progress: chat.Progress{Stage: chat.RunningTool, Detail: `read(path="` + strings.Repeat("a", 80) + `")`, Elapsed: 2 * time.Second},
+			expected: "… · 2s",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			progress := tc.progress
+			core := &mockedChatCore{progressFunc: func() chat.Progress { return progress }}
+			m := sized(t, core, 40, 24)
+			core.busy.Store(true)
+			next, _ := m.Update(refreshMsg{})
+
+			// when
+			result := strings.TrimRight(ansi.Strip(next.(model).thinkingLine()), " ")
+
+			// then
+			assert.NotContains(t, result, "\n")
+			assert.LessOrEqual(t, lipgloss.Width(result), 40)
+			assert.True(t, strings.HasSuffix(result, tc.expected), "%q does not end with %q", result, tc.expected)
 		})
 	}
 }

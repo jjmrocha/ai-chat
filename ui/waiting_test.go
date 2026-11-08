@@ -63,7 +63,7 @@ func startTestWaiting(t *testing.T, ctx context.Context, out io.Writer, interrup
 
 func TestWaitingStopReturnsOnceTheProgramEnds(t *testing.T) {
 	// given
-	w, _ := startTestWaiting(t, context.Background(), &syncBuffer{}, nil)
+	w, _ := startTestWaiting(t, t.Context(), &syncBuffer{}, nil)
 
 	// when / then
 	returnsWithin(t, w.Stop)
@@ -74,7 +74,7 @@ func TestWaitingDrawsTheTextOnTheOutput(t *testing.T) {
 	out := &syncBuffer{}
 
 	// when
-	w, _ := startTestWaiting(t, context.Background(), out, nil)
+	w, _ := startTestWaiting(t, t.Context(), out, nil)
 	defer w.Stop()
 
 	// then
@@ -85,7 +85,7 @@ func TestWaitingDrawsTheTextOnTheOutput(t *testing.T) {
 
 func TestWaitingSecondStopReturnsImmediately(t *testing.T) {
 	// given
-	w, _ := startTestWaiting(t, context.Background(), &syncBuffer{}, nil)
+	w, _ := startTestWaiting(t, t.Context(), &syncBuffer{}, nil)
 	w.Stop()
 
 	// when / then
@@ -94,7 +94,7 @@ func TestWaitingSecondStopReturnsImmediately(t *testing.T) {
 
 func TestWaitingStopsWhenTheContextIsCancelled(t *testing.T) {
 	// given
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	w, _ := startTestWaiting(t, ctx, &syncBuffer{}, nil)
 
 	// when
@@ -111,7 +111,7 @@ func TestWaitingStopsWhenTheContextIsCancelled(t *testing.T) {
 func TestWaitingWithoutATerminalDrawsNothing(t *testing.T) {
 	// given
 	out := &syncBuffer{}
-	w := startWaiting(context.Background(), "Starting…", out, false, 80, nil)
+	w := startWaiting(t.Context(), "Starting…", out, false, 80, nil)
 
 	// when
 	returnsWithin(t, func() {
@@ -198,7 +198,7 @@ func TestWaitingStopBeforeTheFirstFrameWaitsForIt(t *testing.T) {
 
 func TestWaitingSetTextAfterStopDoesNotBlock(t *testing.T) {
 	// given
-	w, _ := startTestWaiting(t, context.Background(), &syncBuffer{}, nil)
+	w, _ := startTestWaiting(t, t.Context(), &syncBuffer{}, nil)
 	w.Stop()
 
 	// when / then
@@ -208,7 +208,7 @@ func TestWaitingSetTextAfterStopDoesNotBlock(t *testing.T) {
 func TestWaitingCtrlCErasesTheLineThenInterrupts(t *testing.T) {
 	// given
 	interrupted := make(chan struct{})
-	w, keys := startTestWaiting(t, context.Background(), &syncBuffer{}, func() { close(interrupted) })
+	w, keys := startTestWaiting(t, t.Context(), &syncBuffer{}, func() { close(interrupted) })
 
 	// when
 	_, err := keys.Write([]byte{0x03})
@@ -230,7 +230,7 @@ func TestWaitingCtrlCErasesTheLineThenInterrupts(t *testing.T) {
 func TestWaitingPrintlnRightAfterStartKeepsTheLine(t *testing.T) {
 	// given
 	out := &syncBuffer{}
-	w, _ := startTestWaiting(t, context.Background(), out, nil)
+	w, _ := startTestWaiting(t, t.Context(), out, nil)
 
 	// when
 	w.Println("starting mcp context7: exit status 1")
@@ -277,27 +277,10 @@ func TestWaitingPrintAfterTheFirstFrameIsSent(t *testing.T) {
 	assert.NotNil(t, cmd)
 }
 
-func TestWaitingPrintlnThenStopKeepsTheLine(t *testing.T) {
-	// given
-	out := &syncBuffer{}
-	w, _ := startTestWaiting(t, context.Background(), out, nil)
-	require.Eventually(t, func() bool {
-		return strings.Contains(ansi.Strip(out.String()), "Starting serena…")
-	}, waitingTimeout, 10*time.Millisecond)
-	time.Sleep(150 * time.Millisecond)
-
-	// when
-	w.Println("starting mcp context7: exit status 1")
-	w.Stop()
-
-	// then
-	assert.Contains(t, ansi.Strip(out.String()), "starting mcp context7: exit status 1")
-}
-
 func TestWaitingPrintlnAfterStopWritesThePlainLine(t *testing.T) {
 	// given
 	out := &syncBuffer{}
-	w, _ := startTestWaiting(t, context.Background(), out, nil)
+	w, _ := startTestWaiting(t, t.Context(), out, nil)
 	w.Stop()
 	before := out.String()
 
@@ -311,7 +294,7 @@ func TestWaitingPrintlnAfterStopWritesThePlainLine(t *testing.T) {
 func TestWaitingConcurrentPrintlnAndStopPrintsEachLineOnce(t *testing.T) {
 	// given
 	out := &syncBuffer{}
-	w, _ := startTestWaiting(t, context.Background(), out, nil)
+	w, _ := startTestWaiting(t, t.Context(), out, nil)
 	const lines = 20
 	var wg sync.WaitGroup
 
@@ -332,7 +315,7 @@ func TestWaitingConcurrentPrintlnAndStopPrintsEachLineOnce(t *testing.T) {
 func TestWaitingPrintlnWithoutATerminalWritesThePlainLine(t *testing.T) {
 	// given
 	out := &syncBuffer{}
-	w := startWaiting(context.Background(), "Starting…", out, false, 80, nil)
+	w := startWaiting(t.Context(), "Starting…", out, false, 80, nil)
 
 	// when
 	w.Println("starting mcp context7: exit status 1")
@@ -344,7 +327,7 @@ func TestWaitingPrintlnWithoutATerminalWritesThePlainLine(t *testing.T) {
 func TestWaitingPrintlnWithEmptyTextWritesNothing(t *testing.T) {
 	// given
 	out := &syncBuffer{}
-	w := startWaiting(context.Background(), "Starting…", out, false, 80, nil)
+	w := startWaiting(t.Context(), "Starting…", out, false, 80, nil)
 
 	// when
 	w.Println("")

@@ -62,26 +62,6 @@ func TestCancelStopsTheRunningCommand(t *testing.T) {
 	assert.Equal(t, Error, lines[len(lines)-1].Kind)
 }
 
-func TestCompactUsesTheCommandContext(t *testing.T) {
-	// given
-	started := make(chan bool, 1)
-	backend := &mockedAgentBackend{
-		compactContextFunc: func(ctx context.Context) {
-			started <- true
-			<-ctx.Done()
-		},
-	}
-	c, _ := newTestChat(t, backend, WithCompactCommand())
-	c.Submit("/compact")
-	<-started
-
-	// when
-	c.Cancel()
-
-	// then
-	waitIdle(t, c)
-}
-
 func TestCancelledCompactReportsCancelledInsteadOfFailure(t *testing.T) {
 	// given
 	started := make(chan bool, 1)

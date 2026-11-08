@@ -10,7 +10,7 @@ func (c *Chat) turn(ctx context.Context, text string) {
 	c.append(User, text)
 
 	resp, err := c.agent.Process(ctx, text)
-	c.closeToolCall(formatToolResult("", nil, 0))
+	c.closeToolCall(noToolResult)
 
 	c.recordTurn(resp, err)
 	c.reportTurn(ctx, resp, err)

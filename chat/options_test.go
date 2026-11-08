@@ -1,9 +1,14 @@
 package chat
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jjmrocha/ai-chat/command"
+	"github.com/jjmrocha/ai-toolkit/agent"
+	"github.com/jjmrocha/ai-toolkit/llm"
+	"github.com/jjmrocha/ai-toolkit/mcp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -51,17 +56,6 @@ func TestWithSkills(t *testing.T) {
 
 	// then
 	assert.Contains(t, result, "skills")
-}
-
-func TestWithSkillCommand(t *testing.T) {
-	// given
-	c := newChat("test", &mockedModelBackend{}, WithSkillCommand("brainstorm", "Explore an idea"))
-
-	// when
-	result := commandNames(c)
-
-	// then
-	assert.Contains(t, result, "brainstorm")
 }
 
 func TestSkillCommandHelpIsItsDescription(t *testing.T) {
@@ -118,3 +112,107 @@ type stubNamedCommand struct{ name string }
 func (s stubNamedCommand) Name() string                { return s.name }
 func (s stubNamedCommand) Help() string                { return "stub" }
 func (s stubNamedCommand) Run(command.Context, string) {}
+
+func TestWithTelemetryFormatter(t *testing.T) {
+	tests := []struct {
+		name      string
+		formatter TelemetryFormatter
+		expected  []Line
+	}{
+		{
+			name:      "custom text becomes the telemetry line",
+			formatter: func(meta agent.Metadata) string { return fmt.Sprintf("%d calls", meta.ToolCalls) },
+			expected: []Line{
+				{Kind: User, Text: "hi"},
+				{Kind: Reply, Text: "reply"},
+				{Kind: Telemetry, Text: "2 calls"},
+			},
+		},
+		{
+			name:      "empty text suppresses the line",
+			formatter: func(agent.Metadata) string { return "" },
+			expected: []Line{
+				{Kind: User, Text: "hi"},
+				{Kind: Reply, Text: "reply"},
+			},
+		},
+		{
+			name:      "nil keeps the default formatter",
+			formatter: nil,
+			expected: []Line{
+				{Kind: User, Text: "hi"},
+				{Kind: Reply, Text: "reply"},
+				{Kind: Telemetry, Text: " 2 tool calls"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			backend := &mockedAgentBackend{
+				processFunc: func(context.Context, string) (*agent.Response, error) {
+					return &agent.Response{Content: "reply", Metadata: agent.Metadata{ToolCalls: 2}}, nil
+				},
+			}
+			c, _ := newTestChat(t, backend, WithTelemetryFormatter(tc.formatter))
+
+			// when
+			c.Submit("hi")
+			waitIdle(t, c)
+
+			// then
+			assert.Equal(t, tc.expected, c.Transcript())
+		})
+	}
+}
+
+func TestWithStatusFormatter(t *testing.T) {
+	tests := []struct {
+		name      string
+		formatter StatusFormatter
+		expected  string
+	}{
+		{
+			name:      "custom formatter renders the status line",
+			formatter: func(info StatusInfo) string { return "model " + info.Model },
+			expected:  "model m1",
+		},
+		{
+			name:      "nil keeps the default formatter",
+			formatter: nil,
+			expected:  "m1 · ctx: 0% · tokens: 0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// given
+			model := &mockedModelBackend{info: llm.ModelInfo{Name: "m1"}}
+			c, _ := newTestChatWithModel(t, &mockedAgentBackend{}, model, WithStatusFormatter(tc.formatter))
+
+			// when
+			result := c.StatusText()
+
+			// then
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestWithMCP(t *testing.T) {
+	// given
+	c := newChat("test", &mockedModelBackend{}, WithMCP(stubMCP{}))
+
+	// when
+	result := commandNames(c)
+
+	// then
+	assert.Contains(t, result, "mcp")
+}
+
+type stubMCP struct{}
+
+func (stubMCP) Status() []mcp.Status                { return nil }
+func (stubMCP) Start(context.Context, string) error { return nil }
+func (stubMCP) Stop(string) error                   { return nil }

@@ -56,11 +56,13 @@ type Chat struct {
 	stageStart     time.Time
 	subagent       subagentState
 	lastMeta       agent.Metadata
+	modelInfo      llm.ModelInfo
+	effort         llm.Effort
 }
 
-// New creates a Chat named name that drives ag, applying opts in order. /model,
-// /effort and [Chat.Status] use ag's model client, ag.LLM(), to switch and show
-// the model and effort ag runs on.
+// New creates a Chat named name that drives ag, applying opts in order. /model
+// and /effort use ag's model client, ag.LLM(), to switch the model and effort ag
+// runs on, and [Chat.StatusText] shows them.
 //
 // The name appears in the front-end's title bar and may be empty. The /help and
 // /exit commands are always registered; every other command comes from an
@@ -89,6 +91,7 @@ func newChat(name string, model modelBackend, opts ...Option) *Chat {
 		now:          time.Now,
 		inbox:        newInbox(),
 	}
+	c.refreshModel()
 	c.register(command.Help(c))
 	c.register(command.Exit(commandContext{c}))
 	for _, opt := range opts {
@@ -108,8 +111,8 @@ func (c *Chat) SetContext(ctx context.Context) {
 
 // Close ends the session: it cancels the running turn or command, discards
 // queued input, silences the observer and waits for that work to return. The
-// transcript stays readable; [Chat.Submit] does nothing afterwards. Close is safe to call more than once; ui.Run calls it for
-// you when the user quits.
+// transcript stays readable; [Chat.Submit] does nothing afterwards. Close is
+// safe to call more than once; ui.Run calls it for you when the user quits.
 func (c *Chat) Close() {
 	c.mu.Lock()
 	if c.closed {

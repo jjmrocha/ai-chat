@@ -67,7 +67,7 @@ func TestModelCommand(t *testing.T) {
 	t.Run("switch uses the command context", func(t *testing.T) {
 		// given
 		type key struct{}
-		cmdCtx := context.WithValue(context.Background(), key{}, "command")
+		cmdCtx := context.WithValue(t.Context(), key{}, "command")
 		var used context.Context
 		models := &mockedModelSwitcher{
 			changeModelFunc: func(ctx context.Context, name string) (*llm.ModelInfo, error) {

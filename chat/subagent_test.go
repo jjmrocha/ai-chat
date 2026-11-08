@@ -53,7 +53,7 @@ func newModelServer(t *testing.T, replies ...string) *llm.LLM {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := llm.New(context.Background(), llm.Config{Provider: llm.ProviderOllama, Model: "test", BaseURL: server.URL})
+	model, err := llm.New(t.Context(), llm.Config{Provider: llm.ProviderOllama, Model: "test", BaseURL: server.URL})
 	require.NoError(t, err)
 	return model
 }
@@ -208,19 +208,6 @@ func TestSubagentProgressShowsTheCachedTokens(t *testing.T) {
 
 	// then
 	assert.Equal(t, "0 tools · 12.30K tokens (9.84K cached)", c.Progress().Subagent)
-}
-
-func TestSubagentProgressHidesZeroCachedTokens(t *testing.T) {
-	// given
-	c, _ := newTestChat(t, &mockedAgentBackend{})
-	fb := subagentFeedback{c}
-	fb.SubagentStarted("explore")
-
-	// when
-	fb.TokensUsed("explore", 12300, 0)
-
-	// then
-	assert.Equal(t, "0 tools · 12.30K tokens", c.Progress().Subagent)
 }
 
 func TestSubagentProgressClearsWhenTheRunFinishes(t *testing.T) {

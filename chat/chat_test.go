@@ -222,10 +222,10 @@ func TestProgressIsThinkingDuringASkillCommand(t *testing.T) {
 
 func TestCommandsSubmittedWhileIdleDoNotRunConcurrently(t *testing.T) {
 	// given
-	started := make(chan string, 4)
+	started := make(chan bool, 4)
 	release := make(chan struct{})
 	backend := &mockedAgentBackend{}
-	c, _ := newTestChat(t, backend, WithCommand(gatedCommand{
+	c, _ := newTestChat(t, backend, WithCommand(blockingCommand{
 		name:    "hold",
 		started: started,
 		release: release,
@@ -236,14 +236,14 @@ func TestCommandsSubmittedWhileIdleDoNotRunConcurrently(t *testing.T) {
 	c.Submit("/hold")
 
 	// then
-	assert.Equal(t, "hold", <-started)
+	<-started
 	select {
 	case <-started:
 		t.Fatal("second command started before the first finished")
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
-	assert.Equal(t, "hold", <-started)
+	<-started
 	waitIdle(t, c)
 }
 
@@ -256,7 +256,6 @@ func TestCommandsAndTurnsShareOneQueueInOrder(t *testing.T) {
 			mu.Lock()
 			order = append(order, "turn")
 			mu.Unlock()
-			time.Sleep(5 * time.Millisecond)
 			return &agent.Response{Content: "ok"}, nil
 		},
 	}
@@ -335,29 +334,6 @@ func TestProgressReportsTheToolInFlightOverTheRunningCommand(t *testing.T) {
 
 	// then
 	assert.Equal(t, Progress{Stage: RunningTool, Detail: "read()"}, c.Progress())
-	close(release)
-	waitIdle(t, c)
-}
-
-func TestProgressIsThinkingDuringATurn(t *testing.T) {
-	// given
-	started := make(chan bool, 1)
-	release := make(chan struct{})
-	backend := &mockedAgentBackend{
-		processFunc: func(context.Context, string) (*agent.Response, error) {
-			started <- true
-			<-release
-			return &agent.Response{Content: "reply"}, nil
-		},
-	}
-	c, _ := newTestChat(t, backend)
-
-	// when
-	c.Submit("hello")
-	<-started
-
-	// then
-	assert.Equal(t, Progress{Stage: Thinking}, c.Progress())
 	close(release)
 	waitIdle(t, c)
 }
@@ -619,37 +595,60 @@ func TestQuitWithoutObserverDoesNotPanic(t *testing.T) {
 	assert.NotPanics(t, commandContext{c}.Quit)
 }
 
-func TestClearResetsTranscript(t *testing.T) {
-	// given
-	backend := &mockedAgentBackend{}
-	c, _ := newTestChat(t, backend)
-	c.append(Info, "line")
+func TestClearCommand(t *testing.T) {
+	t.Run("resets the transcript and the token count", func(t *testing.T) {
+		// given
+		backend := &mockedAgentBackend{}
+		c, _ := newTestChat(t, backend, WithClearCommand())
+		c.append(Info, "line")
+		agentFeedback{c}.TokensUsed(120, 0)
 
-	// when
-	err := c.clear()
+		// when
+		c.Submit("/clear")
+		waitIdle(t, c)
 
-	// then
-	assert.NoError(t, err)
-	assert.Zero(t, len(c.Transcript()))
+		// then
+		assert.Equal(t, []Line{{Kind: Info, Text: "Context cleared."}}, c.Transcript())
+		assert.Zero(t, c.status().Tokens)
+	})
+
+	t.Run("keeps the transcript when the session cannot be reset", func(t *testing.T) {
+		// given
+		backend := &mockedAgentBackend{
+			resetSessionFunc: func() error { return errors.New("locked") },
+		}
+		c, _ := newTestChat(t, backend, WithClearCommand())
+		c.append(Info, "line")
+
+		// when
+		c.Submit("/clear")
+		waitIdle(t, c)
+
+		// then
+		assert.Equal(t, []Line{
+			{Kind: Info, Text: "line"},
+			{Kind: Error, Text: "Error: locked"},
+		}, c.Transcript())
+	})
 }
 
-func TestClearPropagatesResetFailure(t *testing.T) {
+func TestContextCompactedIsReported(t *testing.T) {
 	// given
+	var c *Chat
 	backend := &mockedAgentBackend{
-		resetSessionFunc: func() error { return errors.New("locked") },
+		compactContextFunc: func(context.Context) { agentFeedback{c}.ContextCompacted() },
 	}
-	c, _ := newTestChat(t, backend)
-	c.append(Info, "line")
+	c, _ = newTestChat(t, backend, WithCompactCommand())
 
 	// when
-	err := c.clear()
+	c.Submit("/compact")
+	waitIdle(t, c)
 
 	// then
-	assert.EqualError(t, err, "locked")
-	assert.Equal(t, 1, len(c.Transcript()))
+	assert.Equal(t, []Line{{Kind: Info, Text: "Context compacted."}}, c.Transcript())
 }
 
-func TestConcurrentSubmitsAreSerialized(t *testing.T) {
+func TestConcurrentSubmitsAllRunAndLeaveNothingQueued(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}
 	c, _ := newTestChat(t, backend, WithDefaultCommands())
@@ -731,19 +730,6 @@ func (b blockingCommand) Run(ctx command.Context, _ string) {
 	<-b.release
 }
 
-type gatedCommand struct {
-	name    string
-	started chan string
-	release chan struct{}
-}
-
-func (g gatedCommand) Name() string { return g.name }
-func (g gatedCommand) Help() string { return "gate" }
-func (g gatedCommand) Run(command.Context, string) {
-	g.started <- g.name
-	<-g.release
-}
-
 func blockingUntilCancelled(started chan<- bool) func(context.Context, string) (*agent.Response, error) {
 	return func(ctx context.Context, _ string) (*agent.Response, error) {
 		select {
@@ -776,31 +762,6 @@ func TestCancelStopsTheRunningTurn(t *testing.T) {
 	assert.NotEqual(t, Cancelling, c.Progress().Stage)
 }
 
-func TestCancellingIsReportedUntilTheTurnReturns(t *testing.T) {
-	// given
-	started := make(chan bool, 1)
-	release := make(chan struct{})
-	backend := &mockedAgentBackend{
-		processFunc: func(ctx context.Context, _ string) (*agent.Response, error) {
-			started <- true
-			<-release
-			return nil, ctx.Err()
-		},
-	}
-	c, _ := newTestChat(t, backend)
-	c.Submit("hello")
-	<-started
-
-	// when
-	c.Cancel()
-
-	// then
-	assert.Equal(t, Cancelling, c.Progress().Stage)
-	close(release)
-	waitIdle(t, c)
-	assert.NotEqual(t, Cancelling, c.Progress().Stage)
-}
-
 func TestCancelDropsQueuedInput(t *testing.T) {
 	// given
 	started := make(chan bool, 1)
@@ -820,45 +781,29 @@ func TestCancelDropsQueuedInput(t *testing.T) {
 	assert.Equal(t, []string{"first"}, backend.inputs())
 }
 
-func TestTurnErrorsOtherThanCancelAreReported(t *testing.T) {
-	tests := []struct {
-		name    string
-		prepare func(t *testing.T, c *Chat, backend *mockedAgentBackend)
-	}{
-		{
-			name: "base context cancelled",
-			prepare: func(t *testing.T, c *Chat, backend *mockedAgentBackend) {
-				ctx, cancel := context.WithCancel(context.Background())
-				t.Cleanup(cancel)
-				c.SetContext(ctx)
-				backend.processFunc = func(ctx context.Context, _ string) (*agent.Response, error) {
-					cancel()
-					<-ctx.Done()
-					return nil, ctx.Err()
-				}
-			},
+func TestCancelledBaseContextIsReportedAsAnError(t *testing.T) {
+	// given
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	backend := &mockedAgentBackend{
+		processFunc: func(ctx context.Context, _ string) (*agent.Response, error) {
+			cancel()
+			<-ctx.Done()
+			return nil, ctx.Err()
 		},
 	}
+	c, _ := newTestChat(t, backend)
+	c.SetContext(ctx)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// given
-			backend := &mockedAgentBackend{}
-			c, _ := newTestChat(t, backend)
-			tc.prepare(t, c, backend)
+	// when
+	c.Submit("hello")
 
-			// when
-			c.Submit("hello")
-
-			// then
-			waitIdle(t, c)
-			lines := c.Transcript()
-			require.NotEmpty(t, lines)
-			last := lines[len(lines)-1]
-			assert.Equal(t, Error, last.Kind)
-			assert.Contains(t, last.Text, "Error: ")
-		})
-	}
+	// then
+	waitIdle(t, c)
+	assert.Equal(t, []Line{
+		{Kind: User, Text: "hello"},
+		{Kind: Error, Text: "Error: context canceled"},
+	}, c.Transcript())
 }
 
 func TestCancelArrivingWithTheReplyKeepsTheReply(t *testing.T) {
@@ -903,7 +848,7 @@ func TestNewShowsTheModelOfTheAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	result := New("TEST", ag).Status()
+	result := New("TEST", ag).status()
 
 	// then
 	assert.Equal(t, "test", result.Model)

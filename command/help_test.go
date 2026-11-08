@@ -7,31 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestUsageOf(t *testing.T) {
-	tests := []struct {
-		name     string
-		cmd      Command
-		expected string
-	}{
-		{
-			name:     "argumented command with empty spec stays bare",
-			cmd:      argumentedStub{stubCommand{name: "mcp"}, ""},
-			expected: "/mcp",
-		},
-	}
+func TestUsageOfArgumentedCommandWithEmptySpecIsBare(t *testing.T) {
+	// given
+	cmd := argumentedStub{stubCommand{name: "mcp"}, ""}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// given
-			cmd := tc.cmd
+	// when
+	result := usageOf(cmd)
 
-			// when
-			result := usageOf(cmd)
-
-			// then
-			assert.Equal(t, tc.expected, result)
-		})
-	}
+	// then
+	assert.Equal(t, "/mcp", result)
 }
 
 func TestHelpText(t *testing.T) {

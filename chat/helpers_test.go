@@ -61,6 +61,9 @@ type mockedModelBackend struct {
 	models          []string
 	changeModelErr  error
 	changeEffortErr error
+
+	changing chan struct{}
+	release  chan struct{}
 }
 
 func (m *mockedModelBackend) ModelInfo() *llm.ModelInfo {
@@ -83,6 +86,10 @@ func (m *mockedModelBackend) AvailableModels() []string {
 func (m *mockedModelBackend) ChangeModel(_ context.Context, model string) (*llm.ModelInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.changing != nil {
+		m.changing <- struct{}{}
+		<-m.release
+	}
 	if m.changeModelErr != nil {
 		return nil, m.changeModelErr
 	}

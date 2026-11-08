@@ -16,6 +16,8 @@ import (
 const (
 	maxToolArgLen    = 200
 	maxToolResultLen = 400
+
+	noToolResult = "(no result)"
 )
 
 func formatToolCall(name string, args map[string]any) string {
@@ -63,7 +65,7 @@ func encodeOrShape(value any, budget int, shape string) string {
 }
 
 func formatToolResult(result string, err error, elapsed time.Duration) string {
-	line := toolOutcome(result, err, elapsed)
+	line := toolOutcome(result, err)
 	if elapsed > 0 {
 		line += " · " + format.Duration(elapsed)
 	}
@@ -71,14 +73,12 @@ func formatToolResult(result string, err error, elapsed time.Duration) string {
 	return line
 }
 
-func toolOutcome(result string, err error, elapsed time.Duration) string {
+func toolOutcome(result string, err error) string {
 	switch {
 	case err != nil:
 		return "✗ " + truncate(stripControl(firstLine(err.Error())), maxToolResultLen)
 	case result != "":
 		return formatOutput(result)
-	case elapsed == 0:
-		return "(no result)"
 	default:
 		return "(empty)"
 	}

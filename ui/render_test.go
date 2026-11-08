@@ -70,9 +70,10 @@ func TestRenderActivityDetailUsesActivityStyle(t *testing.T) {
 	result := m.renderActivity(chat.Line{Kind: chat.Activity, Text: "read(x)", Detail: "ok"})
 
 	// then
-	params := sgrParams(result)
-	assert.Truef(t, params["31"], "activity head should carry the activity color in %q", result)
-	assert.Falsef(t, params["36"], "detail should carry the activity color, not the telemetry color, in %q", result)
+	head, detail, _ := strings.Cut(result, "\n")
+	assert.Truef(t, sgrParams(head)["31"], "head should carry the activity color in %q", head)
+	assert.Truef(t, sgrParams(detail)["31"], "detail should carry the activity color in %q", detail)
+	assert.Falsef(t, sgrParams(detail)["36"], "detail should not carry the telemetry color in %q", detail)
 }
 
 func TestRenderBlockStylesMarkdownReplies(t *testing.T) {

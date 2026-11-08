@@ -14,7 +14,7 @@ type AgentController interface {
 // narrow: a command that needs more than this is given its own collaborator at
 // construction instead.
 type Context interface {
-	// Agent returns the controller for model, effort and compaction.
+	// Agent returns the controller for compaction.
 	Agent() AgentController
 
 	// Info appends command output to the transcript. Pass undecorated text;
