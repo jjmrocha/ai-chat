@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -48,17 +49,13 @@ func (f agentFeedback) SessionReset() {}
 func (f agentFeedback) SessionStarted() {}
 
 func (f agentFeedback) SessionResumed(sessionID string) {
-	c := f.c
-	tokens := 0
-	for _, msg := range c.agent.Messages() {
-		if m, ok := msg.(llm.AssistantMessage); ok {
-			tokens = m.Stats.TotalTokens
-		}
-		c.replay(msg)
+	messages := f.c.agent.Messages()
+	for _, msg := range messages {
+		f.c.replay(msg)
 	}
 
-	c.setTokens(tokens)
-	c.append(Info, "Session "+sessionID+" resumed.")
+	f.c.setTokens(lastTotalTokens(messages))
+	f.c.append(Info, "Session "+sessionID+" resumed.")
 }
 
 func (f agentFeedback) SessionClosed() {}
@@ -92,4 +89,13 @@ func (c *Chat) replay(msg llm.Message) {
 			c.append(Reply, m.Content)
 		}
 	}
+}
+
+func lastTotalTokens(messages []llm.Message) int {
+	for _, msg := range slices.Backward(messages) {
+		if m, ok := msg.(llm.AssistantMessage); ok {
+			return m.Stats.TotalTokens
+		}
+	}
+	return 0
 }

@@ -47,10 +47,7 @@ func (mcpCmd) Args() string {
 }
 
 func (c mcpCmd) Run(ctx Context, args string) {
-	action, name := args, ""
-	if i := strings.IndexFunc(args, unicode.IsSpace); i >= 0 {
-		action, name = args[:i], strings.TrimSpace(args[i:])
-	}
+	action, name := splitAction(args)
 
 	switch action {
 	case "":
@@ -60,6 +57,14 @@ func (c mcpCmd) Run(ctx Context, args string) {
 	default:
 		ctx.Error("Usage: /mcp [on|off] [name]")
 	}
+}
+
+func splitAction(args string) (action, name string) {
+	i := strings.IndexFunc(args, unicode.IsSpace)
+	if i < 0 {
+		return args, ""
+	}
+	return args[:i], strings.TrimSpace(args[i:])
 }
 
 func (c mcpCmd) list(ctx Context) {

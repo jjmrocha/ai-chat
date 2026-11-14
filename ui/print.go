@@ -25,7 +25,7 @@ func (m model) emit() (tea.Model, tea.Cmd) {
 	m.cursor = next
 	m.printing = true
 
-	return m, tea.Sequence(m.printCmds(blocks)...)
+	return m, printLines(m.chunksThatFit(blocks), printedMsg{})
 }
 
 // printBacklog writes the transcript the core already holds straight to w,
@@ -47,15 +47,19 @@ func (m model) printBacklog(w io.Writer, width, height int) model {
 	return m
 }
 
-func (m model) printCmds(blocks []string) []tea.Cmd {
+func (m model) chunksThatFit(blocks []string) []string {
 	limit := m.printLimit()
-	cmds := make([]tea.Cmd, 0, len(blocks)+1)
+	var chunks []string
 	for _, b := range blocks {
-		for _, chunk := range chunkBlock(b, limit) {
-			cmds = append(cmds, tea.Println(chunk))
-		}
+		chunks = append(chunks, chunkBlock(b, limit)...)
 	}
-	return append(cmds, func() tea.Msg { return printedMsg{} })
+	return chunks
+}
+
+func printLines(lines []string, done tea.Msg) tea.Cmd {
+	cmds := fn.Map(lines, func(line string) tea.Cmd { return tea.Println(line) })
+	cmds = append(cmds, func() tea.Msg { return done })
+	return tea.Sequence(cmds...)
 }
 
 // printWidth is one column short of the terminal so that no printed line ever

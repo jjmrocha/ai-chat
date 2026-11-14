@@ -136,6 +136,21 @@ func TestSessionResumedShowsTheLastResponseTokens(t *testing.T) {
 	assert.Equal(t, 250, c.status().Tokens)
 }
 
+func TestSessionResumedWithoutAResponseShowsZeroTokens(t *testing.T) {
+	// given
+	backend := &mockedAgentBackend{messages: []llm.Message{
+		llm.UserMessage{Content: "unanswered"},
+	}}
+	c, _ := newTestChat(t, backend)
+	c.setTokens(42)
+
+	// when
+	agentFeedback{c}.SessionResumed("abc")
+
+	// then
+	assert.Equal(t, 0, c.status().Tokens)
+}
+
 func TestTurnClosesAnUnreturnedToolCall(t *testing.T) {
 	// given
 	backend := &mockedAgentBackend{}

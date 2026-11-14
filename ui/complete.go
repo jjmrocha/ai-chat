@@ -107,18 +107,18 @@ func (m *model) handleCompletionKey(msg tea.KeyPressMsg) bool {
 
 func (m model) completionView() string {
 	rows, sel := m.completer.visible()
-	width := 0
-	for _, row := range rows {
-		width = max(width, len(row.name)+1)
-	}
+	nameWidth := fn.Fold(rows, 0, func(width int, row completion) int {
+		return max(width, len("/"+row.name))
+	})
 
-	lines := make([]string, maxCompletionRows-len(rows), maxCompletionRows)
+	blankRows := maxCompletionRows - len(rows)
+	lines := make([]string, blankRows, maxCompletionRows)
 	for i, row := range rows {
 		marker, style := "  ", m.styles.completion
 		if i == sel {
 			marker, style = "› ", m.styles.selected
 		}
-		text := fmt.Sprintf("%s%-*s  %s", marker, width, "/"+row.name, row.help)
+		text := fmt.Sprintf("%s%-*s  %s", marker, nameWidth, "/"+row.name, row.help)
 		lines = append(lines, ansi.Truncate(style.Render(text), m.width, "…"))
 	}
 	return strings.Join(lines, "\n")

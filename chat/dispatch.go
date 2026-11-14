@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/jjmrocha/ai-chat/command"
 )
 
 // Submit queues text as the next input and returns immediately; the work runs
@@ -68,7 +70,8 @@ func (c *Chat) runItem(ctx context.Context, text string) {
 	c.agentMu.Lock()
 	defer c.agentMu.Unlock()
 
-	defer c.enterWork(ctx)()
+	leaveWork := c.enterWork(ctx)
+	defer leaveWork()
 
 	if strings.HasPrefix(text, "/") {
 		c.runCommand(ctx, text)
@@ -80,8 +83,8 @@ func (c *Chat) runItem(ctx context.Context, text string) {
 func (c *Chat) runCommand(ctx context.Context, input string) {
 	name, args := splitCommand(strings.TrimPrefix(input, "/"))
 
-	cmd, ok := c.commands.Get(name)
-	if _, skill := cmd.(skillCommand); !ok || skill {
+	cmd, ok := c.localCommand(name)
+	if !ok {
 		c.turn(ctx, input)
 		return
 	}
@@ -99,6 +102,12 @@ func splitCommand(s string) (name, args string) {
 		return s, ""
 	}
 	return s[:i], s[i:]
+}
+
+func (c *Chat) localCommand(name string) (command.Command, bool) {
+	cmd, found := c.commands.Get(name)
+	_, isSkill := cmd.(skillCommand)
+	return cmd, found && !isSkill
 }
 
 func (c *Chat) setPendingCommand(input string) {

@@ -11,6 +11,13 @@ import (
 // Install one with [WithStatusFormatter].
 type StatusFormatter func(StatusInfo) string
 
+// StatusText returns the status line: the active model and provider, the
+// reasoning effort and how much of the context window the last turn used,
+// rendered by the status formatter. It never waits on the model client, not
+// even while /model is switching models, so a front-end may call it on every
+// frame.
+func (c *Chat) StatusText() string { return c.statusFmt(c.status()) }
+
 func (c *Chat) status() StatusInfo {
 	c.mu.Lock()
 	mi, effort, tokens := c.modelInfo, c.effort, c.lastMeta.TotalTokens
@@ -27,13 +34,6 @@ func (c *Chat) status() StatusInfo {
 	}
 	return info
 }
-
-// StatusText returns the status line: the active model and provider, the
-// reasoning effort and how much of the context window the last turn used,
-// rendered by the status formatter. It never waits on the model client, not
-// even while /model is switching models, so a front-end may call it on every
-// frame.
-func (c *Chat) StatusText() string { return c.statusFmt(c.status()) }
 
 func (c *Chat) refreshModel() {
 	info, effort := *c.model.ModelInfo(), c.model.Effort()

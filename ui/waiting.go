@@ -99,19 +99,24 @@ func (w *Waiting) Println(text string) {
 	if text == "" {
 		return
 	}
-
-	w.mu.Lock()
-	if w.program != nil && !w.stopped {
-		w.program.Send(waitingPrintMsg(text))
-		w.mu.Unlock()
+	if w.printAboveSpinner(text) {
 		return
 	}
-	w.mu.Unlock()
 
 	if w.program != nil {
 		<-w.done
 	}
 	_, _ = fmt.Fprintln(w.out, text)
+}
+
+func (w *Waiting) printAboveSpinner(text string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.program == nil || w.stopped {
+		return false
+	}
+	w.program.Send(waitingPrintMsg(text))
+	return true
 }
 
 // Stop erases the line and returns once it is gone, so the next output starts
@@ -195,13 +200,9 @@ func (m waitingModel) flush() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if len(m.queue) > 0 {
-		cmds := make([]tea.Cmd, 0, len(m.queue)+1)
-		for _, line := range m.queue {
-			cmds = append(cmds, tea.Println(line))
-		}
-		cmds = append(cmds, func() tea.Msg { return waitingPrintedMsg{} })
+		cmd := printLines(m.queue, waitingPrintedMsg{})
 		m.queue, m.printing = nil, true
-		return m, tea.Sequence(cmds...)
+		return m, cmd
 	}
 	if m.stopping {
 		m.stopped = true
